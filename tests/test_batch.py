@@ -88,3 +88,38 @@ def test_convert_stage_runs_in_parallel_and_resumes_from_cache(tmp_path, caplog)
     # --no-cache reprocesses everything
     batch.convert_stage(stls, str(spec_dir), 0.12, 2, cache, False)
     assert any(first_write[s] != Path(s).stat().st_mtime_ns for s in specs)
+
+
+def test_first_interrupt_requests_a_stop_and_the_second_quits_now(monkeypatch, capsys):
+    exits = []
+    killed = []
+    monkeypatch.setattr(batch, "_stop", False)
+    monkeypatch.setattr(batch, "_kill_workers", lambda: killed.append(True))
+    monkeypatch.setattr(batch.os, "_exit", lambda code: exits.append(code))
+    batch._interrupt()
+    assert batch.stop_requested() and not exits
+    assert "Press Ctrl+C again to quit now" in capsys.readouterr().out
+    batch._interrupt()
+    assert exits == [130] and killed == [True]
+
+
+def test_stopping_before_conversion_submits_nothing(tmp_path, monkeypatch):
+    trimesh = pytest.importorskip("trimesh")
+    stls = []
+    for name in ("a", "b", "c"):
+        path = tmp_path / (name + ".stl")
+        trimesh.creation.box(extents=(20, 20, 4)).export(path)
+        stls.append(str(path))
+    monkeypatch.setattr(batch, "_stop", True)
+    cache = batch.StageCache(tmp_path / ".cache", "convert")
+    specs = batch.convert_stage(stls, str(tmp_path / "specs"), 0.12, 2, cache, True)
+    assert len(specs) == 3 and not any(Path(s).exists() for s in specs)
+    assert not (tmp_path / ".cache" / "convert").exists()  # nothing was marked as done
+
+
+def test_an_interrupted_build_exits_with_130(tmp_path, monkeypatch):
+    examples = Path(__file__).parent.parent / "examples" / "specs"
+    monkeypatch.setattr(batch, "_stop", True)
+    code = main(["--quiet", "build", str(examples), str(tmp_path / "ipt"), "--validate-only",
+                 "--cache-dir", str(tmp_path / ".cache")])
+    assert code == 130
