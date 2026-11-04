@@ -15,7 +15,7 @@ import shutil
 import signal
 import sys
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 
 from tqdm import tqdm
@@ -26,20 +26,60 @@ from . import spec as sp
 log = logging.getLogger("stl_to_ipt")
 
 _stop = False
+_pool = None  # the active process pool: its workers are killed when the user quits for good
+_console_handler = None  # keeps the ctypes callback alive (Windows)
+
+
+def _kill_workers():
+    for proc in list((getattr(_pool, "_processes", None) or {}).values()):
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+
+def _interrupt():
+    """First Ctrl+C: stop after the items that are running (progress is saved per item). Second: quit now."""
+    global _stop
+    if _stop:
+        print("\nQuitting now.", flush=True)
+        _kill_workers()
+        os._exit(130)
+    _stop = True
+    print("\n[Ctrl+C] Stopping after the running item(s); progress is saved. Press Ctrl+C again to quit now.",
+          flush=True)
 
 
 def _on_signal(sig, frame):
-    global _stop
-    if _stop:
-        print("\nForce-quitting.")
-        sys.exit(1)
-    print("\n[Ctrl+C] Finishing the current item and saving progress. Press again to force-quit.")
-    _stop = True
+    _interrupt()
+
+
+def _install_windows_console_handler():
+    """Handle Ctrl+C on a thread of its own. Python's handler only runs when the main thread is back in the
+    interpreter, which it is not while it waits on a worker or on an Inventor call: the first message would come
+    late and the second Ctrl+C would arrive together with it."""
+    global _console_handler
+    import ctypes
+    routine = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_uint)
+
+    def handler(ctrl_type):
+        if ctrl_type in (0, 1):  # CTRL_C_EVENT, CTRL_BREAK_EVENT
+            _interrupt()
+            return 1  # handled: Python's own handler must not run as well
+        return 0
+
+    _console_handler = routine(handler)
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, 1)
 
 
 def install_signal_handlers():
     signal.signal(signal.SIGINT, _on_signal)
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        try:
+            _install_windows_console_handler()
+        except Exception:  # no console (e.g. under a test runner): the Python handler is enough
+            pass
+    else:
         signal.signal(signal.SIGTERM, _on_signal)
 
 
@@ -118,22 +158,45 @@ def convert_stage(stl_files, spec_dir, tol, workers, cache, use_cache):
             todo.append((stl, name, digest))
     if not todo:
         return specs
+    global _pool
     log.info("Converting %d STL file(s) with %d worker(s)", len(todo), workers)
     with ProcessPoolExecutor(max_workers=workers, initializer=_ignore_sigint) as pool, \
             tqdm(total=len(todo), desc="Converting", unit="part") as bar:
-        futures = {pool.submit(_convert_one, stl, spec_dir, tol): (name, digest) for stl, name, digest in todo}
-        for fut in as_completed(futures):
-            name, digest = futures[fut]
-            try:
-                _, value, _ = fut.result()
-                cache.mark_done(name, digest)
-                bar.set_postfix_str("%s IoU %.3f" % (name, value))
-            except Exception as e:  # keep going with the next part
-                log.error("%s: conversion failed: %s", name, e)
-            bar.update(1)
-            if _stop:  # finish the running items, drop the queued ones
-                pool.shutdown(wait=True, cancel_futures=True)
-                break
+        _pool = pool
+        queue = iter(todo)
+        futures = {}  # in flight: future -> (name, digest)
+
+        def submit_next():
+            """Keep at most one part per worker in flight, so that stopping really stops the queue (the executor
+            itself pre-queues more parts than it has workers, and those can no longer be cancelled)."""
+            if _stop:
+                return
+            item = next(queue, None)
+            if item:
+                stl, name, digest = item
+                futures[pool.submit(_convert_one, stl, spec_dir, tol)] = (name, digest)
+
+        for _ in range(workers):
+            submit_next()
+        announced = False
+        while futures:
+            # a timeout keeps the main thread responsive: a bare wait would not notice Ctrl+C on Windows
+            done, _ = wait(list(futures), timeout=0.2, return_when=FIRST_COMPLETED)
+            for fut in done:
+                name, digest = futures.pop(fut)
+                try:
+                    _, value, _ = fut.result()
+                    cache.mark_done(name, digest)
+                    bar.set_postfix_str("%s IoU %.3f" % (name, value))
+                except Exception as e:  # keep going with the next part
+                    log.error("%s: conversion failed: %s", name, e)
+                bar.update(1)
+                submit_next()
+            if _stop and futures and not announced:
+                announced = True
+                log.warning("Waiting for %d running part(s): %s", len(futures),
+                            ", ".join(sorted(v[0] for v in futures.values())))
+        _pool = None
     return specs
 
 
@@ -179,10 +242,10 @@ def build_command(spec_dir, out_dir, cache_dir=".cache", use_cache=True, validat
     install_signal_handlers()
     specs = sorted(glob.glob(os.path.join(spec_dir, "*.json")))
     ok, failures = build_stage(specs, out_dir, StageCache(cache_dir, "build", use_cache), use_cache, validate_only)
-    log.info("Done: %d ok, %d failed.", len(ok), len(failures))
+    log.info("Stopped early: %d ok, %d failed." if _stop else "Done: %d ok, %d failed.", len(ok), len(failures))
     for n, e in failures:
         log.error(" - %s: %s", n, e)
-    return 0 if not failures else 3
+    return 130 if _stop else (0 if not failures else 3)
 
 
 def run_command(stl_dir, out_dir, tol=0.12, workers=None, cache_dir=".cache", use_cache=True,
@@ -207,10 +270,10 @@ def run_command(stl_dir, out_dir, tol=0.12, workers=None, cache_dir=".cache", us
     log.info("Stage 2/2 - Building .ipt files in Inventor")
     existing = [s for s in specs if os.path.exists(s)]
     ok, failures = build_stage(existing, ipt_dir, StageCache(cache_dir, "build", use_cache), use_cache)
-    log.info("Done: %d ok, %d failed.", len(ok), len(failures))
+    log.info("Stopped early: %d ok, %d failed." if _stop else "Done: %d ok, %d failed.", len(ok), len(failures))
     for n, e in failures:
         log.error(" - %s: %s", n, e)
-    return 0 if not failures else 3
+    return 130 if _stop else (0 if not failures else 3)
 
 
 def log_fit_report(report):

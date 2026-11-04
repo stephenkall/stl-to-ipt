@@ -80,8 +80,10 @@ stl-to-ipt preview specs\part.json part.png       # PNG of every sketch
 | `--quiet`, `-q` | no logs and no progress bars |
 
 Both stages are resumable: finished parts are recorded under `.cache/convert` and `.cache/build`, keyed by a
-digest of the input file and the options. Press Ctrl+C once to finish the current item and save progress; run the
-same command again to continue.
+digest of the input file and the options. Press Ctrl+C once to stop after the parts that are running (nothing new
+is started) and save progress; run the same command again to continue. Press Ctrl+C a second time to quit at once:
+the workers are killed, parts they were working on are redone next time, and a part that Inventor is building may
+be left open there. The exit code is 130 after an interruption.
 
 The `examples/specs` folder holds the specs of twenty real parts, which `stl-to-ipt build` can turn into `.ipt`
 files without any STL. See [docs/spec-format.md](docs/spec-format.md) for the format.
