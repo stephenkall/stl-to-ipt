@@ -1,0 +1,15 @@
+.env
+.cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Generated model files and third-party meshes never belong in the repository
+*.ipt
+*.stl
+*.zip
