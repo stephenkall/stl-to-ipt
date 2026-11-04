@@ -1216,8 +1216,53 @@ def select_edges(app, comp, selection):
     return col, count
 
 
-def add_finish(app, comp, f):
-    col, count = select_edges(app, comp, f.get("selection", "all"))
+def base_outline_edges(app, comp, base, selection):
+    """Edge collection with the outer edges of the cap where the base extrusion starts or ends (holes excluded).
+
+    The cap is the planar face normal to the extrusion axis at that end with the largest area."""
+    n = sp.PLANE_AXES[base["plane"]][0]
+    start = base.get("offset", 0.0)
+    target = start if selection == "base_start_outline" else start + base.get("direction", 1) * base["distance"]
+    best = None
+    for face in comp.SurfaceBodies.Item(1).Faces:
+        try:
+            plane = face.Geometry
+            normal, root = (plane.Normal.X, plane.Normal.Y, plane.Normal.Z), (plane.RootPoint.X, plane.RootPoint.Y,
+                                                                              plane.RootPoint.Z)
+        except Exception:
+            continue  # not a plane
+        if abs(abs(normal[n]) - 1.0) > 1e-6 or abs(root[n] - target * MM) > 1e-4:
+            continue
+        area = face.Evaluator.Area
+        if best is None or area > best[0]:
+            best = (area, face)
+    col = app.TransientObjects.CreateEdgeCollection()
+    if best is None:
+        return col, 0
+    count = 0
+    for loop in best[1].EdgeLoops:
+        if loop.IsOuterEdgeLoop:
+            for edge in loop.Edges:
+                col.Add(edge)
+                count += 1
+    return col, count
+
+
+def add_finish(app, comp, f, base=None):
+    selection = f.get("selection", "all")
+    if selection in sp.BASE_OUTLINE_SELECTIONS:
+        col, count = base_outline_edges(app, comp, base, selection)
+        if count == 0:
+            raise RuntimeError("no outline edge found for '%s'" % f.get("name", f["type"]))
+        feature = comp.Features.FilletFeatures.AddSimple(col, f["radius"] * MM)
+        set_name(feature, f.get("name", "Edge fillet"))
+        try:  # the radius is an editable parameter
+            feature.Definition.EdgeSets.Item(1).Radius.Name = Context(comp).unique(
+                _slug(f.get("name", "Edge fillet")) + "_radius")
+        except Exception:
+            pass
+        return feature
+    col, count = select_edges(app, comp, selection)
     if count == 0:
         print("  warning: no edge selected for", f["type"])
         return
@@ -1264,7 +1309,7 @@ def create_ipt(spec, output, app=None, close=False):
         elif f["type"] == "revolve":
             add_revolve(comp, tg, f)
         elif f["type"] in ("fillet", "chamfer"):
-            add_finish(app, comp, f)
+            add_finish(app, comp, f, spec["features"][0])
 
     doc.Update()
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)

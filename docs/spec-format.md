@@ -59,6 +59,18 @@ A gear that is only partly used is a full `gear` followed by an ordinary `join` 
 and a `cut` extrusion (`Trim gear`) whose rectangles remove the rest of the gear; see `Yaw_Gear` in
 `examples/specs`. The converter detects this itself (`docs/development-notes.md`, "Gear sectors").
 
+## Edge fillet
+
+```json
+{"type": "fillet", "name": "Edge fillet", "selection": "base_start_outline", "radius": 8}
+```
+
+Rounds the outer edges of one cap of the base extrusion: `base_start_outline` is the cap at the sketch plane,
+`base_end_outline` the opposite one. Only the outer loop is filleted, never the holes. The feature must come right
+after the base extrusion, and holes that lie inside the fillet band belong after it (a separate cut or `hole`
+feature), because the rolling ball cannot pass over them. `radius` becomes the parameter `<name>_radius`. The legacy
+selections `all`, `vertical`, `top` and `bottom` are still accepted.
+
 ## Patterns
 
 * A `rectangle` or `circle` with a `pattern` of type `linear` (one direction, three or more copies) is drawn once and

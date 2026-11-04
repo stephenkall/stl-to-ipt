@@ -94,6 +94,17 @@ root circle is larger than the base circle (31 teeth at 25 degrees) the flank st
 is made when the part is built, so editing module or teeth later must keep the root on the same side of the base
 circle. A sector may lose up to 0.03 of IoU against the contour version (flat roots instead of mesh fillets).
 
+## Rounded edges
+
+A fillet along a stadium or any curved outline shows up in the silhouettes only along the straight parts, so the
+slicer used to imitate it with rings of steps (`Pedal_Base_Pins_Cap` had eight features and 193 parameters).
+`_apply_edge_fillet` measures it instead: for distances `h` from a cap it finds the inset `d(h)` that shrinks the
+full outline (the section with the largest area) to the area of the mesh section, and fits the radius of the
+rolling ball, `d(h) = R - sqrt(R^2 - (R - h)^2)`, to it (RMS under 0.2 mm). A chamfer is linear in `h` and does not
+fit. The base then gets the full outline without holes, followed by the fillet, a `Through holes` cut and what is
+left of the old features: the steps, pads and silhouette cuts that only imitated the rounding are dropped one by
+one while the IoU stays within 0.002. Inventor refuses the fillet when holes sit in its band, hence the order.
+
 ## Rounding, fits and mirroring
 
 - `rounding.nice` is the single rounding policy. The converter applies it to the whole spec and `_regularize`
