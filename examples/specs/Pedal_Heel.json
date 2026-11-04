@@ -89,7 +89,7 @@
  ],
  "notes": {
   "part": "Pedal_Heel",
-  "estimated_iou": 0.9909,
+  "estimated_iou": 0.9965,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    -55.0,
@@ -112,6 +112,7 @@
    }
   ],
   "mirror": null,
-  "iou": 0.9905
+  "gear": null,
+  "iou": 0.9926
  }
 }

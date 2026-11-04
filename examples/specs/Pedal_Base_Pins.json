@@ -131,6 +131,7 @@
    "offset": 17.5,
    "removed_duplicates": 2
   },
+  "gear": null,
   "rotation_applied_before_slicing": {
    "axis": "X",
    "degrees": 20

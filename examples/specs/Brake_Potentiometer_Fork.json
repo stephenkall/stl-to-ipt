@@ -74,7 +74,7 @@
  ],
  "notes": {
   "part": "Brake_Potentiometer_Fork",
-  "estimated_iou": 0.9984,
+  "estimated_iou": 0.9992,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    0.0,
@@ -93,6 +93,7 @@
    }
   ],
   "mirror": null,
-  "iou": 0.998
+  "gear": null,
+  "iou": 0.9994
  }
 }

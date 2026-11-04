@@ -164,6 +164,7 @@
    "offset": 25.0,
    "removed_duplicates": 2
   },
-  "iou": 0.9998
+  "gear": null,
+  "iou": 0.9999
  }
 }
