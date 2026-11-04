@@ -311,7 +311,7 @@
  ],
  "notes": {
   "part": "Yaw_Gear",
-  "estimated_iou": 0.9962,
+  "estimated_iou": 0.9963,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    -50.527,
@@ -340,6 +340,7 @@
    }
   ],
   "mirror": null,
+  "gear": null,
   "iou": 0.9938
  }
 }

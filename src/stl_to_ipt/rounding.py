@@ -58,10 +58,15 @@ def round_spec(spec):
         _round_fields(f)
         if f["type"] == "hole":
             f["points"] = [[nice(x), nice(y)] for x, y in f["points"]]
+            if f.get("pattern"):
+                f["pattern"]["cx"], f["pattern"]["cy"] = nice(f["pattern"]["cx"]), nice(f["pattern"]["cy"])
+        if f["type"] == "gear":
+            f["center"] = [nice(v) for v in f["center"]]
+            f["phase"] = round(f["phase"], 2)
         for s in f.get("sketch", []) or []:
             _round_fields(s)
             if "pattern" in s:
-                for k in ("dx", "dy"):
+                for k in ("dx", "dy", "cx", "cy"):
                     if k in s["pattern"]:
                         s["pattern"][k] = nice(s["pattern"][k])
             if s.get("shape") == "polygon":

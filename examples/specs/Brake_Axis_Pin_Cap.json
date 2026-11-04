@@ -154,7 +154,7 @@
  ],
  "notes": {
   "part": "Brake_Axis_Pin_Cap",
-  "estimated_iou": 0.9818,
+  "estimated_iou": 0.9909,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    70.0,
@@ -195,6 +195,7 @@
    }
   ],
   "mirror": null,
-  "iou": 0.9833
+  "gear": null,
+  "iou": 0.9894
  }
 }

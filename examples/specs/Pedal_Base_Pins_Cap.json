@@ -451,7 +451,7 @@
  ],
  "notes": {
   "part": "Pedal_Base_Pins_Cap",
-  "estimated_iou": 0.9867,
+  "estimated_iou": 0.9869,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    -22.5,
@@ -497,10 +497,11 @@
    "offset": 52.5,
    "removed_duplicates": 1
   },
+  "gear": null,
   "rotation_applied_before_slicing": {
    "axis": "X",
    "degrees": 20
   },
-  "iou": 0.9836
+  "iou": 0.9839
  }
 }

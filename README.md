@@ -14,6 +14,13 @@ edit to resize the part.
   decimals (see [Dimension rounding](#dimension-rounding-and-fits)).
 - Round holes that are not visible in the silhouette (blind holes across the extrusion axis) become real Inventor
   **Hole** features, and symmetric parts are built from one side plus a **Mirror** feature.
+- Repeated geometry is **patterned**, not drawn copy by copy: rows of identical shapes become a rectangular pattern
+  in the sketch (count and pitch are parameters, e.g. the 39 grooves of `Pedal_Main_Body`), and a ring of holes
+  becomes one hole plus a circular pattern (e.g. the 8 holes of `Rotation_Bar`).
+- A standard involute **spur gear** (`Yaw_Pot_Gear`: module 3, 10 teeth, 20 degrees) is built from its design
+  parameters: a root cylinder, one tooth drawn with equation curves and a circular pattern. `module`, `teeth`,
+  `pressure_angle`, `width`, the center and the phase are user parameters, so changing them regenerates the gear.
+  (Inventor's Design Accelerator generator cannot be scripted: its add-in has no automation object.)
 - The extrusion axis is chosen so the part looks like a prism; the sketch goes on XY when possible and is
   extruded along Z.
 - Equal diameters share one parameter, rows of identical shapes are pattern copies driven by one `_pitch`

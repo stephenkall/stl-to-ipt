@@ -20,7 +20,7 @@ import numpy as np
 import shapely
 from shapely.geometry import Polygon, box
 
-from . import fits, rounding
+from . import fits, gears, patterns, rounding
 from . import spec as sp
 from . import symmetry
 
@@ -539,6 +539,24 @@ def compact(shapes):
         if i not in used:
             used.add(i)
             out.append(f)
+    return _circle_rings(out)
+
+
+def _circle_rings(shapes):
+    """Equal circles equally spaced on a circle become one circle with a circular pattern."""
+    groups = patterns.circle_ring(shapes)
+    if not groups:
+        return shapes
+    drop = {i for idx, _ in groups for i in idx[1:]}
+    out = []
+    for i, s in enumerate(shapes):
+        if i in drop:
+            continue
+        for idx, pat in groups:
+            if idx[0] == i:
+                s = dict(shapes[i])
+                s["pattern"] = {"type": "circular", "n": pat["n"], "cx": pat["cx"], "cy": pat["cy"]}
+        out.append(s)
     return out
 
 
@@ -834,6 +852,9 @@ def hole_features(holes, plane):
         for k in ("head_d", "angle", "head_depth"):
             if k in f0:
                 feat[k] = f0[k]
+        ring = patterns.circular_pattern(feat["points"])
+        if ring:  # a ring of identical holes: the spec says so, the builder places one hole and patterns it
+            feat["pattern"] = ring
         feats.append(feat)
     return feats
 
@@ -1071,6 +1092,49 @@ def _prune(spec, ext, pts2, inside2):
     return current, pruned
 
 
+def _apply_gear(m, spec, ext, pts, inside):
+    """Replace the base profile by a ``gear`` feature when it is a standard involute spur gear. The inner shapes
+    of the base sketch (the bore) become a through cut. Kept only if the IoU does not drop by more than 0.01."""
+    base = spec["features"][0]
+    if base["type"] != "extrusion" or base.get("operation") != "new":
+        return None
+    shapes = base["sketch"]
+    if not any(s_["shape"] == "contour" and len(s_["segments"]) >= 12 for s_ in shapes):
+        return None  # a gear outline has many segments; skip the (cheap) test otherwise
+    # fit on the real mesh section (the fitted contour is already an approximation of it)
+    n = sp.PLANE_AXES[base["plane"]][0]
+    level = base.get("offset", 0.0) + base["distance"] * 0.5 * base.get("direction", 1)
+    region = section(m, n, level)
+    if region is None:
+        return None
+    polys = list(getattr(region, "geoms", [region]))
+    outline = max(polys, key=lambda g: g.area)
+    fit = gears.fit_full_gear(outline)
+    if not fit:
+        return None
+    # the contour shape that is the gear outline; everything else in the sketch is a hole (bore)
+    geoms = [sp.shape_to_geometry(s_) for s_ in shapes]
+    outer = max(range(len(shapes)), key=lambda i: geoms[i].area)
+    inner = [s_ for i, s_ in enumerate(shapes) if i != outer]
+    gear = {"type": "gear", "name": "Spur gear", "plane": base["plane"], "offset": base.get("offset", 0.0),
+            "direction": base.get("direction", 1), "distance": base["distance"], "module": fit["module"],
+            "teeth": fit["teeth"], "pressure_angle": fit["pressure_angle"], "addendum": fit["addendum"],
+            "dedendum": fit["dedendum"], "phase": fit["phase"], "center": fit["center"]}
+    new = [gear]
+    if inner:
+        new.append({"type": "extrusion", "name": "Bore", "plane": base["plane"], "offset": base.get("offset", 0.0),
+                    "direction": base.get("direction", 1), "operation": "cut", "distance": sp.THROUGH_ALL,
+                    "sketch": inner})
+    before = _iou_points(spec, ext, pts, inside)
+    trial = {"system": "model", "features": new + spec["features"][1:]}
+    rounding.round_spec(trial)
+    if _iou_points(trial, ext, pts, inside) < before - 0.01:
+        return None
+    spec["features"] = trial["features"]
+    return {"module": gear["module"], "teeth": gear["teeth"], "pressure_angle": gear["pressure_angle"],
+            "fit_iou": fit["iou"]}
+
+
 def _apply_mirror(spec, ext, pts, inside):
     """Replace mirrored duplicates by a mirror feature when that keeps the IoU. Return a note for the spec."""
     base_iou = _iou_points(spec, ext, pts, inside)
@@ -1118,6 +1182,7 @@ def _convert_mesh(m, tol, part):
         value, pruned = _prune(spec, ext, pts2, inside2)
         results.append((value - 0.006 * len(feats), spec, value, n_runs, pruned, merge))
     _, spec, value, _, pruned, merge = max(results, key=lambda r: r[0])
+    gear_note = _apply_gear(m, spec, ext, pts2, inside2)
     raw_diameters = fits.raw_diameters(spec)
     rounding.round_spec(spec)
     symmetry.unique_names(spec["features"])
@@ -1126,7 +1191,8 @@ def _convert_mesh(m, tol, part):
                      "origin": "minimum corner of the mesh bounding box at the origin",
                      "original_min": [round(float(v), 3) for v in m.metadata.get("original_min", [0, 0, 0])],
                      "extrusion_axis": AXIS_NAME[n], "tolerance_mm": tol, "pruned_features": pruned,
-                     "merged_interruptions": merge, "raw_diameters": raw_diameters, "mirror": mirror_note}
+                     "merged_interruptions": merge, "raw_diameters": raw_diameters, "mirror": mirror_note,
+                     "gear": gear_note}
     return m, ext, spec, value
 
 

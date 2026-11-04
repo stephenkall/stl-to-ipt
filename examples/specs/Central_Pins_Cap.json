@@ -75,7 +75,7 @@
  ],
  "notes": {
   "part": "Central_Pins_Cap",
-  "estimated_iou": 0.9994,
+  "estimated_iou": 1.0,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    -22.5,
@@ -98,6 +98,7 @@
    "offset": 52.5,
    "removed_duplicates": 1
   },
-  "iou": 0.999
+  "gear": null,
+  "iou": 0.9998
  }
 }

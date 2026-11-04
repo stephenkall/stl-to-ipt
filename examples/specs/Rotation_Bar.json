@@ -366,12 +366,24 @@
      34.87
     ],
     [
+     164.86,
+     10.13
+    ],
+    [
      152.5,
      40.0
     ],
     [
+     152.5,
+     5.0
+    ],
+    [
      140.1,
      10.13
+    ],
+    [
+     140.1,
+     34.87
     ],
     [
      135.0,
@@ -381,16 +393,13 @@
    "d": 3.0,
    "depth": 15.0,
    "head_d": 7.0,
-   "angle": 90.0
-  },
-  {
-   "type": "mirror",
-   "name": "Mirror XZ",
-   "plane": "XZ",
-   "offset": 22.5,
-   "features": [
-    "Countersunk hole"
-   ]
+   "angle": 90.0,
+   "pattern": {
+    "type": "circular",
+    "n": 8,
+    "cx": 152.5,
+    "cy": 22.5
+   }
   },
   {
    "type": "hole",
@@ -442,19 +451,22 @@
      "x": 107.5,
      "y": 7.5,
      "d": 3.0
-    },
-    {
-     "shape": "circle",
-     "x": 107.5,
-     "y": 22.5,
-     "d": 3.0
     }
+   ]
+  },
+  {
+   "type": "mirror",
+   "name": "Mirror XY",
+   "plane": "XY",
+   "offset": 15.0,
+   "features": [
+    "Through cut axis Y"
    ]
   }
  ],
  "notes": {
   "part": "Rotation_Bar",
-  "estimated_iou": 0.9988,
+  "estimated_iou": 0.9992,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    9.329,
@@ -496,10 +508,11 @@
    }
   ],
   "mirror": {
-   "plane": "XZ",
-   "offset": 22.5,
-   "removed_duplicates": 3
+   "plane": "XY",
+   "offset": 15.0,
+   "removed_duplicates": 1
   },
-  "iou": 0.9982
+  "gear": null,
+  "iou": 0.999
  }
 }
