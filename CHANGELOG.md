@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.2.0...v0.3.0) (2026-11-04)
+
+
+### Features
+
+* build patterns and spur gears from their design parameters ([768fb71](https://github.com/stephenkall/stl-to-ipt/commit/768fb71fdc833cedd4d8b4ecbc290088f27fe6a8))
+* build patterns and spur gears from their design parameters ([37c213b](https://github.com/stephenkall/stl-to-ipt/commit/37c213bfa7541bbf12f1f4c81989a34fc4bdaf0d))
+
 ## [0.2.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.1.0...v0.2.0) (2026-11-04)
 
 
