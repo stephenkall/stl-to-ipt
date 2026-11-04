@@ -28,6 +28,7 @@ warnings.filterwarnings("ignore")
 PLANE_NAME = {2: "XY", 1: "XZ", 0: "YZ"}
 AXIS_NAME = "XYZ"
 THROUGH_CUT_PREFIX = "Through cut"
+RECESS_NAME = "Circular recess"  # a pocket that belongs to a hole: never pruned as a mere step
 
 
 # ----------------------------------------------------------------------------- mesh
@@ -745,49 +746,143 @@ def detect_holes(pos, regs, step, vertex_levels):
             continue
         z = np.array([pos[i] for i in t["idx"]])
         d = np.array(t["d"])
-        direction = 1
-        if d[:2].mean() < d[-2:].mean():  # the wide end is the "face": orient from the face to the bottom
-            z, d, direction = z[::-1], d[::-1], -1
-        d_small = float(np.median(d[-max(2, len(d) // 4):]))
-        k = next((q for q, v in enumerate(d) if abs(v - d_small) < 0.12), len(d) - 1)
-        if k < 1:
-            continue
-
-        def pin(x):
-            c = vertex_levels[np.argmin(np.abs(vertex_levels - x))]
-            return float(c) if abs(c - x) <= 1.5 * step else x
-
-        face = pin(z[0] - direction * step / 2.0)
-        bottom = pin(z[-1] + direction * step / 2.0)
-        depth = abs(bottom - face)
-        tt = np.abs(z[:k] - face)
-        base = dict(x=round(t["c"][0], 3), y=round(t["c"][1], 3), d=round(d_small, 2), face=round(face, 3),
-                    direction=direction, depth=round(depth, 3), idx=(t["idx"][0], t["idx"][-1]))
-        if k >= 3 and np.ptp(d[:k]) > 0.8:  # cone: linear fit d(t)
-            b, a = np.polyfit(tt, d[:k], 1)
-            res = d[:k] - (a + b * tt)
-            if b < 0 and np.abs(res).max() < 0.25:
-                ang = 2 * math.degrees(math.atan(abs(b) / 2.0))
-                if min(abs(q - ang) for q in COUNTERSINK_ANGLES) < 4:
-                    ang = min(COUNTERSINK_ANGLES, key=lambda q: abs(q - ang))
-                holes.append(dict(base, subtype="countersink", head_d=round(float(a), 2),
-                                  angle=round(float(ang), 1)))
-        elif k <= 2:  # step: counterbore
-            zc = pin(z[k] - direction * step / 2.0)
-            holes.append(dict(base, subtype="counterbore", head_d=round(float(np.median(d[:k])), 2),
-                              head_depth=round(abs(zc - face), 3)))
+        holes += profile_holes(t["c"], z, d, (t["idx"][0], t["idx"][-1]), step, vertex_levels)
     return holes
 
 
-def slice_and_group(m, ext, n, K=None, max_groups=6, merge_interruptions=False):
+POCKET_MIN_SLICES = 3
+MIN_STEP = 0.8  # smallest difference between a head and its shank (mm) that counts as a counterbore
+
+
+def profile_holes(center, z, d, idx, step, vertex_levels):
+    """Holes described by the diameter profile ``d`` of a ring track at the axis positions ``z`` (ascending).
+
+    The wide end is the face. A profile is read from the face inwards as: an optional flat part (a counterbore
+    head, or a circular recess when a cone follows it), an optional cone (countersink) and the shank. Return hole
+    dicts; a recess is a dict of subtype ``recess`` next to the countersunk hole that sits in its floor."""
+    direction = 1
+    if d[:2].mean() < d[-2:].mean():  # the wide end is the "face": orient from the face to the bottom
+        z, d, direction = z[::-1], d[::-1], -1
+    d_small = float(np.median(d[-max(2, len(d) // 4):]))
+    k = next((q for q, v in enumerate(d) if abs(v - d_small) < 0.12), len(d) - 1)
+    if k < 1:
+        return []
+
+    def pin(x):
+        c = vertex_levels[np.argmin(np.abs(vertex_levels - x))]
+        return float(c) if abs(c - x) <= 1.5 * step else x
+
+    face = pin(z[0] - direction * step / 2.0)
+    bottom = pin(z[-1] + direction * step / 2.0)
+    base = dict(x=round(center[0], 3), y=round(center[1], 3), d=round(d_small, 2), face=round(face, 3),
+                direction=direction, depth=round(abs(bottom - face), 3), idx=idx)
+    flat = int(next((q for q in range(k) if abs(d[q] - d[0]) >= 0.15), k))  # leading slices of one diameter
+
+    def counterbore():
+        head = float(np.median(d[:k]))
+        if head - d_small < MIN_STEP:  # a chamfer or noise, not a counterbore
+            return []
+        zc = pin(z[k] - direction * step / 2.0)
+        return [dict(base, subtype="counterbore", head_d=round(head, 2), head_depth=round(abs(zc - face), 3))]
+
+    if flat == k:  # a flat head, then the step to the shank: counterbore
+        return counterbore()
+    start = flat if flat >= POCKET_MIN_SLICES else 0  # the cone starts after a real flat part, else at the face
+    if k - start < 3 or np.ptp(d[start:k]) <= 0.8:  # no cone: the part up to the shank is a flat head
+        return counterbore()
+    tt = np.abs(z[start:k] - face)
+    b, a = np.polyfit(tt, d[start:k], 1)  # cone: linear fit d(t), t measured from the face
+    if b >= 0 or np.abs(d[start:k] - (a + b * tt)).max() >= 0.25:
+        return []
+    ang = 2 * math.degrees(math.atan(abs(b) / 2.0))
+    if min(abs(q - ang) for q in COUNTERSINK_ANGLES) < 4:
+        ang = min(COUNTERSINK_ANGLES, key=lambda q: abs(q - ang))
+    if start == 0:
+        return [dict(base, subtype="countersink", head_d=round(float(a), 2), angle=round(float(ang), 1))]
+    # a circular recess of the flat diameter with the countersunk hole in its floor, where the cone starts
+    flat_d = float(np.median(d[:start]))
+    floor = pin(face + direction * ((flat_d - a) / b))
+    recess = dict(base, subtype="recess", d=round(flat_d, 2), face=round(face, 3))
+    recess["floor"] = round(floor, 3)
+    sink = dict(base, subtype="countersink", head_d=round(flat_d, 2), angle=round(float(ang), 1),
+                face=round(floor, 3), depth=round(abs(bottom - floor), 3))
+    return [recess, sink]
+
+
+def hole_fill(hole, a, n, s, region, refs=()):
+    """The part of a hole (axis ``a``, a hole dict) that lies in the slice at ``s`` along axis ``n``: the material
+    the hole took out of that section.
+
+    The hole is clipped to a reference section without the hole, when one of ``refs`` contains the section (the
+    part is prismatic there): that also restores a crown that the hole cut off, and leaves cavities alone.
+    Otherwise it is clipped to the convex hull of the section piece it belongs to.
+
+    Used to hand the slicer sections as if the transverse holes had not been drilled (they are separate hole
+    features, not steps of the extrusion)."""
+    if hole["subtype"] == "recess":  # a circular pocket from its floor out through the open side
+        hole = dict(hole, subtype="simple", face=hole["floor"], direction=-hole["direction"], depth=1000.0,
+                    overshoot=0.0)
+    axes_n = sp.PLANE_AXES[PLANE_NAME[n]][1:]  # the two axes of the slice plane
+    _, A, B = sp.PLANE_AXES[PLANE_NAME[a]]
+    center = {A: hole["x"], B: hole["y"]}
+    w = B if A == n else A
+    delta = s - center[n]
+    # A corridor as wide as the widest part of the hole. Filling more than the hole took out is harmless (that
+    # is material already, and the result is clipped to the hull), while a cone is only an approximation of an
+    # opening that is slightly oval where it breaks through a curved face.
+    radius_max = max(hole["d"], hole.get("head_d", 0.0)) / 2.0
+    depth = hole["depth"] - hole.get("overshoot", 0.0)
+    ts = np.linspace(0.0, depth, 3)
+    rows = [(t, math.sqrt(radius_max ** 2 - delta ** 2)) for t in ts if radius_max > abs(delta) + 1e-6]
+    if len(rows) < 2:
+        return None
+    along = [hole["face"] + hole["direction"] * t for t, _ in rows]
+    upper = [(c, center[w] + half) for c, (_, half) in zip(along, rows)]
+    lower = [(c, center[w] - half) for c, (_, half) in zip(along, rows)][::-1]
+    ring = [{a: p[0], w: p[1]} for p in upper + lower]
+    poly = Polygon([(q[axes_n[0]], q[axes_n[1]]) for q in ring]).buffer(0)
+    if poly.is_empty:
+        return None
+    for ref in refs:
+        if ref is not None and region.difference(ref.buffer(0.3)).area <= 0.01 * max(region.area, 1e-9):
+            return poly.intersection(ref)
+    pieces = [g for g in getattr(region, "geoms", [region]) if g.geom_type == "Polygon" and not g.is_empty]
+    if not pieces:
+        return None
+    best = max(pieces, key=lambda g: g.convex_hull.intersection(poly).area)
+    return poly.intersection(best.convex_hull)
+
+
+def slice_and_group(m, ext, n, K=None, max_groups=6, merge_interruptions=False, fills=()):
     """Slice the part along axis ``n`` and group consecutive slices with the same section.
     Return (runs, holes): runs = list of (z0, z1, region) with boundaries pinned to mesh vertices;
-    countersunk/counterbored holes are removed from the region (they become hole features)."""
+    countersunk/counterbored holes are removed from the region (they become hole features).
+    ``fills`` lists ``(axis, hole)`` of transverse holes whose volume is given back to the sections."""
     length = ext[n]
     K = K or int(min(200, max(60, length / 0.15)))
     step = length / K
     pos = [step * (i + 0.5) for i in range(K)]
-    raw = [_clean(section(m, n, z)) for z in pos]
+
+    def reference_sections(a, hole):
+        """Sections just outside the hole along ``n``: the part as it is without the hole."""
+        _, A, B = sp.PLANE_AXES[PLANE_NAME[a]]
+        c_n = hole["x"] if A == n else hole["y"]
+        reach = max(hole["d"], hole.get("head_d", 0.0)) / 2.0 + 0.4
+        return [section(m, n, s) for s in (c_n - reach, c_n + reach) if 0.0 < s < length]
+
+    references = [reference_sections(a, hole) for a, hole in fills]
+
+    def healed(z):
+        reg = section(m, n, z)
+        if reg is None:
+            return reg
+        for (a, hole), refs in zip(fills, references):
+            fill = hole_fill(hole, a, n, z, reg, refs)
+            if fill is not None and not fill.is_empty:
+                reg = shapely.union_all([reg, fill])
+        return reg
+
+    raw = [_clean(healed(z)) for z in pos]
     vertex_levels = np.unique(np.round(m.vertices[:, n], 2))
     holes = detect_holes(pos, raw, step, vertex_levels)
 
@@ -798,7 +893,7 @@ def slice_and_group(m, ext, n, K=None, max_groups=6, merge_interruptions=False):
 
     def clean_section(z):
         i = min(max(int(z / step), 0), K - 1)
-        return _clean(_without_rings(section(m, n, z), centers_at(i)))
+        return _clean(_without_rings(healed(z), centers_at(i)))
 
     groups = [[0]]
     for i in range(1, K):
@@ -850,9 +945,15 @@ def hole_features(holes, plane):
     for f in holes:  # identical holes become a single feature with several centers
         key = tuple((k, f[k]) for k in sorted(f) if k not in ("x", "y", "idx"))
         groups.setdefault(key, []).append(f)
-    feats = []
+    feats, recesses = [], []
     for key, fs in groups.items():
         f0 = fs[0]
+        if f0["subtype"] == "recess":  # a circular pocket: a cut extrusion from its floor towards the open side
+            circles = [{"shape": "circle", "x": f["x"], "y": f["y"], "d": f0["d"]} for f in fs]
+            recesses.append({"type": "extrusion", "name": RECESS_NAME, "plane": plane, "offset": f0["floor"],
+                             "direction": -f0["direction"], "operation": "cut", "distance": sp.THROUGH_ALL,
+                             "sketch": compact(circles)})
+            continue
         name = {"countersink": "Countersunk hole", "counterbore": "Counterbored hole",
                 "simple": "Blind hole"}[f0["subtype"]]
         feat = {"type": "hole", "name": name, "subtype": f0["subtype"], "plane": plane, "offset": f0["face"],
@@ -865,7 +966,7 @@ def hole_features(holes, plane):
         if ring:  # a ring of identical holes: the spec says so, the builder places one hole and patterns it
             feat["pattern"] = ring
         feats.append(feat)
-    return feats
+    return recesses + feats  # the recess comes first: the hole sits in its floor
 
 
 def find_blind_holes(m, ext, a, silhouette_geom=None):
@@ -895,19 +996,60 @@ def find_blind_holes(m, ext, a, silhouette_geom=None):
     return _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, face_level)
 
 
+def _rings_loose(reg):
+    """Circular inner rings plus round-ish ones (a cone cut by a curved face is slightly oval), as
+    ``(cx, cy, d, loose)``; the diameter of a loose ring is that of the circle with the same area."""
+    strict = _circular_rings(reg)
+    out = [(cx, cy, d, False) for cx, cy, d in strict]
+    for poly in getattr(reg, "geoms", [reg]):
+        if poly.geom_type != "Polygon":
+            continue
+        for ring in poly.interiors:
+            area = Polygon(ring)
+            if area.area < 1.0 or len(ring.coords) < 14:
+                continue
+            c = area.centroid
+            if any(math.hypot(c.x - cx, c.y - cy) < 0.4 for cx, cy, _ in strict):
+                continue
+            box_ = np.asarray(area.minimum_rotated_rectangle.exterior.coords)
+            sides = sorted([math.dist(box_[0], box_[1]), math.dist(box_[1], box_[2])])
+            if 4 * math.pi * area.area / area.length ** 2 >= 0.95 and sides[1] / max(sides[0], 1e-9) <= 1.4:
+                out.append((c.x, c.y, 2 * math.sqrt(area.area / math.pi), True))
+    return out
+
+
+def _reach_surface(hole, center, face_level):
+    """Move the face of a countersunk hole out to the outermost point of the part around it.
+
+    On a curved face the cone is only seen where the hole breaks through, but it goes on to the crown of the
+    surface; the head diameter grows along the cone."""
+    if hole["subtype"] != "countersink":
+        return hole
+    outer = face_level(center, hole["head_d"] / 2.0, hole["direction"] == -1)
+    if outer is None:
+        return hole
+    out = (outer - hole["face"]) * -hole["direction"]  # how far beyond the face, measured outwards
+    if not 0.2 < out <= hole["head_d"]:
+        return hole
+    grow = 2 * math.tan(math.radians(hole["angle"] / 2.0)) * out
+    return dict(hole, face=round(float(outer), 3), depth=round(hole["depth"] + out, 3),
+                head_d=round(hole["head_d"] + grow, 2))
+
+
 def _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, face_level):
     from shapely.geometry import Point
     tracks = []
     for i, reg in enumerate(regs):
-        for (cx, cy, d) in _circular_rings(reg):
+        for (cx, cy, d, loose) in _rings_loose(reg):
             for t in tracks:
                 if t["idx"][-1] == i - 1 and math.hypot(t["c"][0] - cx, t["c"][1] - cy) < 0.4:
                     t["idx"].append(i)
                     t["d"].append(d)
                     t["c"] = (cx, cy)
+                    t["loose"] = t["loose"] or loose
                     break
             else:
-                tracks.append({"idx": [i], "d": [d], "c": (cx, cy)})
+                tracks.append({"idx": [i], "d": [d], "c": (cx, cy), "loose": loose})
 
     def pin(x):
         c = vertex_levels[np.argmin(np.abs(vertex_levels - x))]
@@ -916,37 +1058,60 @@ def _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, fa
     holes = []
     for t in tracks:
         d = np.array(t["d"])
-        if len(t["idx"]) < 3 or np.ptp(d) > 0.3 or np.median(d) < 0.8:
-            continue
         center = Point(t["c"])
-        if not center.within(silhouette_geom):  # a through hole: handled by the silhouette cut
-            continue
         i0, i1 = t["idx"][0], t["idx"][-1]
         low_open = i0 == 0 or not regs[i0 - 1].contains(center)
         high_open = i1 == len(regs) - 1 or not regs[i1 + 1].contains(center)
-        if low_open == high_open:  # through, or an internal cavity
+        if len(t["idx"]) >= 4 and np.ptp(d) >= 0.8:
+            # countersunk / counterbored holes and circular recesses: the wide end has to be open (the face)
+            wide_is_low = d[:2].mean() > d[-2:].mean()
+            if low_open if wide_is_low else high_open:
+                found = profile_holes(t["c"], np.array([pos[i] for i in t["idx"]]), d, (i0, i1), step,
+                                      vertex_levels)
+                if not any(h["subtype"] == "recess" for h in found):
+                    found = [_reach_surface(h, t["c"], face_level) for h in found]
+                holes += found
+            continue
+        if len(t["idx"]) < 3 or np.ptp(d) > 0.3 or np.median(d) < 0.8 or t["loose"]:
+            continue
+        if not center.within(silhouette_geom):  # a through hole: handled by the silhouette cut
+            continue
+        cavity_end = None  # which open end leads into a cavity: material lies further along the axis there
+        if low_open and high_open:
+            beyond_low = any(regs[j].contains(center) for j in range(0, i0))
+            beyond_high = any(regs[j].contains(center) for j in range(i1 + 1, len(regs)))
+            if beyond_low == beyond_high:  # through, or a channel between two cavities
+                continue
+            cavity_end = "low" if beyond_low else "high"
+            high_open = cavity_end == "low"  # the end with nothing beyond it is the outside: the face
+        elif low_open == high_open:
             continue
         r = float(np.median(d)) / 2.0
         face = face_level(t["c"], r, high_open)
         if face is None:
             continue
+        overshoot = 0.0
+        if cavity_end:  # reach into the cavity so that the hole opens into it
+            near = i0 - 2 if cavity_end == "low" else i1 + 2
+            if 0 <= near < len(regs) and not regs[near].contains(center):
+                overshoot = step
         if high_open:
-            bottom = pin((pos[i0] + pos[i0 - 1]) / 2.0 if i0 > 0 else pos[i0] - step / 2.0)
+            bottom = pin((pos[i0] + pos[i0 - 1]) / 2.0 if i0 > 0 else pos[i0] - step / 2.0) - overshoot
             face = max(pin(face), pos[i1])
             direction = -1
         else:
-            bottom = pin((pos[i1] + pos[i1 + 1]) / 2.0 if i1 + 1 < len(pos) else pos[i1] + step / 2.0)
+            bottom = pin((pos[i1] + pos[i1 + 1]) / 2.0 if i1 + 1 < len(pos) else pos[i1] + step / 2.0) + overshoot
             face = min(pin(face), pos[i0])
             direction = 1
         holes.append(dict(x=round(t["c"][0], 3), y=round(t["c"][1], 3), d=round(float(np.median(d)), 2),
                           face=round(face, 3), direction=direction, depth=round(abs(face - bottom), 3),
-                          subtype="simple", idx=(i0, i1)))
+                          subtype="simple", idx=(i0, i1), overshoot=round(overshoot, 3)))
     return holes
 
 
-def plan(m, ext, n, tol, merge_interruptions=False):
+def plan(m, ext, n, tol, merge_interruptions=False, fills=()):
     """Body features (base + runs) and hole features for extrusion axis ``n``."""
-    runs, holes = slice_and_group(m, ext, n, merge_interruptions=merge_interruptions)
+    runs, holes = slice_and_group(m, ext, n, merge_interruptions=merge_interruptions, fills=fills)
     plane = PLANE_NAME[n]
     _, A, B = sp.PLANE_AXES[plane]
     bounds = {0: [0.0, ext[A]], 1: [0.0, ext[B]]}
@@ -1085,7 +1250,8 @@ def _prune(spec, ext, pts2, inside2):
     pruned = []
     current = _iou_points(spec, ext, pts2, inside2)
     initial = current
-    order = ([f for f in feats[1:] if f["type"] == "extrusion" and not f["name"].startswith(THROUGH_CUT_PREFIX)] +
+    order = ([f for f in feats[1:] if f["type"] == "extrusion" and not f["name"].startswith(THROUGH_CUT_PREFIX)
+              and not f["name"].startswith(RECESS_NAME)] +
              [f for f in feats[1:] if f["name"].startswith(THROUGH_CUT_PREFIX)])
     for f in order:
         k = feats.index(f)
@@ -1316,12 +1482,14 @@ def _convert_mesh(m, tol, part):
             best = (score, n)
     n = best[1]
     # blind holes across the extrusion axis are independent of the run plan: detect them once
-    blind_features = []
+    blind_features, fills = [], []
     for a in [x for x in (2, 1, 0) if x != n]:
-        blind_features += hole_features(find_blind_holes(m, ext, a), PLANE_NAME[a])
+        transverse = find_blind_holes(m, ext, a)
+        blind_features += hole_features(transverse, PLANE_NAME[a])
+        fills += [(a, h) for h in transverse]  # the slicer sees the part as if these holes were not drilled
     results = []
     for merge in (False, True):
-        feats, n_runs = plan(m, ext, n, tol, merge)
+        feats, n_runs = plan(m, ext, n, tol, merge, fills)
         if merge and n_runs == results[0][3]:  # nothing to merge: same result
             continue
         _silhouette_cuts(m, ext, feats, n, tol)

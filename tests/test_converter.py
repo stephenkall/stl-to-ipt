@@ -3,7 +3,7 @@ import math
 
 import numpy as np
 import pytest
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 
 trimesh = pytest.importorskip("trimesh")
 
@@ -62,6 +62,7 @@ def test_detects_countersunk_hole_in_slices():
     assert h["subtype"] == "countersink"
     assert h["d"] == pytest.approx(3.0, abs=0.2)
     assert h["angle"] == pytest.approx(90, abs=1)
+    assert h["head_d"] == pytest.approx(8.0, abs=0.15)  # the diameter at the face, not at the first ring center
     assert (h["x"], h["y"]) == (pytest.approx(20, abs=0.1), pytest.approx(20, abs=0.1))
 
 
@@ -179,3 +180,117 @@ def test_tangent_junctions_detects_line_arc_and_arc_arc_continuity():
     bent = {"shape": "contour", "start": [0, 0],
             "segments": [["L", 10, 0], ["A", 12, 4, 10, 8], ["L", 0, 8], ["L", 0, 0]]}
     assert 1 not in inv.tangent_junctions(bent)  # the arc meets the line at (10, 8) at an angle
+
+
+# ---------------------------------------------------------------- holes with a changing diameter
+def _ring_slices(profile, step=0.5, n=20, size=40.0):
+    """Slices of a plate with a round hole whose diameter is ``profile(z)`` along the axis."""
+    pos = [step * (i + 0.5) for i in range(n)]
+    plate = box(0, 0, size, size)
+    regs = [plate.difference(Point(20, 20).buffer(profile(z) / 2.0, 32)) for z in pos]
+    return pos, regs, step, np.array([0.0, n * step])
+
+
+def test_flat_pocket_then_cone_then_shank_is_a_recess_with_a_countersunk_hole():
+    # 7 mm pocket for 3 mm, a 90 degree cone down to the 3 mm shank at z = 5
+    pos, regs, step, levels = _ring_slices(lambda z: 7.0 if z < 3.0 else max(3.0, 7.0 - 2 * (z - 3.0)))
+    holes = cv.detect_holes(pos, regs, step, levels)
+    kinds = sorted(h["subtype"] for h in holes)
+    assert kinds == ["countersink", "recess"]
+    recess = next(h for h in holes if h["subtype"] == "recess")
+    sink = next(h for h in holes if h["subtype"] == "countersink")
+    assert recess["d"] == pytest.approx(7.0, abs=0.2) and recess["floor"] == pytest.approx(3.0, abs=0.3)
+    assert sink["face"] == pytest.approx(recess["floor"], abs=0.01)
+    assert sink["head_d"] == pytest.approx(7.0, abs=0.2) and sink["angle"] == pytest.approx(90, abs=1)
+    assert sink["d"] == pytest.approx(3.0, abs=0.2)
+
+
+def test_long_counterbore_head_is_detected():
+    pos, regs, step, levels = _ring_slices(lambda z: 8.0 if z < 4.0 else 3.0)
+    (h,) = cv.detect_holes(pos, regs, step, levels)
+    assert h["subtype"] == "counterbore" and h["head_d"] == pytest.approx(8.0, abs=0.2)
+    assert h["head_depth"] == pytest.approx(4.0, abs=0.3)
+
+
+def test_recess_becomes_a_cut_towards_the_open_side_and_the_hole_sits_in_its_floor():
+    holes = [dict(x=20, y=20, d=7.0, face=0.0, direction=1, depth=10.0, subtype="recess", floor=3.0, idx=(0, 9)),
+             dict(x=20, y=20, d=3.0, face=3.0, direction=1, depth=7.0, subtype="countersink", head_d=7.0,
+                  angle=90.0, idx=(0, 9))]
+    feats = cv.hole_features(holes, "XY")
+    assert [f["type"] for f in feats] == ["extrusion", "hole"]  # the recess comes first
+    recess = feats[0]
+    assert recess["operation"] == "cut" and recess["offset"] == 3.0 and recess["direction"] == -1
+    assert recess["distance"] == sp.THROUGH_ALL and recess["name"].startswith(cv.RECESS_NAME)
+    assert feats[1]["offset"] == 3.0 and feats[1]["direction"] == 1
+    base = {"type": "extrusion", "plane": "XY", "operation": "new", "distance": 10,
+            "sketch": [{"shape": "rectangle", "x": 0, "y": 0, "width": 40, "height": 40}]}
+    assert sp.validate({"system": "model", "features": [base] + feats})[0] == []
+
+
+def test_hole_between_the_outside_and_a_cavity_is_a_blind_hole():
+    step = 0.5
+    pos = [step * (i + 0.5) for i in range(16)]
+    plate = box(0, 0, 40, 40)
+    notch = plate.difference(box(15, 0, 25, 22))  # the cavity: the center is empty but the void is not a ring
+    ring = _plate_with_hole(True)
+    regs = [plate] * 5 + [notch] * 4 + [ring] * 4 + [Polygon()] * 3  # far wall, cavity, wall with the hole, outside
+    holes = cv._blind_holes_from_slices(pos, regs, step, plate, np.array([0.0, 8.0]),
+                                        lambda c, r, high: 7.0 if high else 0.0)
+    assert len(holes) == 1
+    h = holes[0]
+    assert h["subtype"] == "simple" and h["direction"] == -1  # drilled from the outside end towards the cavity
+    assert h["face"] == pytest.approx(7.0) and h["overshoot"] == pytest.approx(0.5)
+    assert h["depth"] == pytest.approx(3.0, abs=0.01)  # 7.0 down to the cavity wall at 4.5, plus the overshoot
+
+
+def test_hole_open_to_the_outside_at_both_ends_is_not_a_blind_hole():
+    step = 0.5
+    pos = [step * (i + 0.5) for i in range(14)]
+    regs = [Polygon()] * 2 + [_plate_with_hole(True)] * 8 + [Polygon()] * 4  # nothing beyond either end
+    plate = box(0, 0, 40, 40)
+    assert cv._blind_holes_from_slices(pos, regs, step, plate, np.array([0.0, 7.0]), lambda c, r, h: 0.0) == []
+
+
+def test_oval_rings_are_loose_and_elongated_ones_are_not_rings():
+    from shapely import affinity
+    plate = box(0, 0, 40, 40)
+    oval = affinity.scale(Point(20, 20).buffer(2.0, 32), 1.0, 1.25)
+    (cx, cy, d, loose), = cv._rings_loose(plate.difference(oval))
+    assert loose and d == pytest.approx(2 * math.sqrt(math.pi * 2.0 * 2.5 / math.pi), abs=0.1)
+    slot = affinity.scale(Point(20, 20).buffer(2.0, 32), 1.0, 2.0)
+    assert cv._rings_loose(plate.difference(slot)) == []
+    (strict,) = cv._rings_loose(plate.difference(Point(20, 20).buffer(2.0, 32)))
+    assert strict[3] is False
+
+
+def test_hole_fill_returns_the_volume_a_transverse_hole_took_out():
+    # hole along Y (face at y = 15, drilled towards -Y, 2.5 deep) at x = 5, z = 7.5; slices along X
+    hole = dict(x=5.0, y=7.5, d=3.0, face=15.0, direction=-1, depth=2.5, subtype="simple", overshoot=0.0)
+    region = box(0, 0, 15, 15).difference(box(12.5, 6.0, 15.0, 9.0))
+    fill = cv.hole_fill(hole, 1, 0, 5.0, region)
+    assert fill.area == pytest.approx(2.5 * 3.0, abs=0.1)
+    assert region.union(fill).area == pytest.approx(15 * 15, abs=0.1)
+    off_center = cv.hole_fill(hole, 1, 0, 5.9, region)  # chord of the cylinder: half width sqrt(1.5^2 - 0.9^2)
+    assert off_center.area == pytest.approx(2.5 * 2 * math.sqrt(1.5 ** 2 - 0.9 ** 2), abs=0.1)
+    assert cv.hole_fill(hole, 1, 0, 7.0, region) is None  # the slice misses the hole
+
+
+def test_a_small_step_at_the_entrance_is_not_a_counterbore():
+    # 2.6 mm for the first millimetre, then the 2.0 mm shank: a chamfer-like ripple, not a design feature
+    pos, regs, step, levels = _ring_slices(lambda z: 2.6 if z < 1.0 else 2.0)
+    assert cv.detect_holes(pos, regs, step, levels) == []
+
+
+def test_hole_fill_restores_a_crown_the_hole_cut_off_when_a_reference_section_is_given():
+    # a ring (outer r 7.5, bore r 5) with a radial 3 mm hole through its wall: the crown of the outer face is gone
+    ring = Point(7.5, 7.5).buffer(7.5, 128).difference(Point(7.5, 7.5).buffer(5.0, 128))
+    notched = ring.difference(box(12.5, 6.0, 15.5, 9.0))
+    hole = dict(x=5.0, y=7.5, d=3.0, face=15.0, direction=-1, depth=2.5, subtype="simple", overshoot=0.0)
+    by_hull = cv.hole_fill(hole, 1, 0, 5.0, notched)
+    assert ring.area - notched.union(by_hull).area > 0.15  # the sliver of crown stays missing
+    by_reference = cv.hole_fill(hole, 1, 0, 5.0, notched, refs=[ring])
+    assert notched.union(by_reference).area == pytest.approx(ring.area, abs=0.02)
+    assert not by_reference.intersects(Point(7.5, 7.5).buffer(4.9))  # nothing is put back into the bore
+    # a reference that does not contain the section (a different run of the part) is not used
+    elsewhere = box(100, 100, 120, 120)
+    assert cv.hole_fill(hole, 1, 0, 5.0, notched, refs=[elsewhere]).area == pytest.approx(by_hull.area, abs=0.01)

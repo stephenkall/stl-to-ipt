@@ -74,6 +74,24 @@
    "name": "Edge fillet",
    "selection": "base_end_outline",
    "radius": 2.0
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XZ",
+   "offset": 0.0,
+   "direction": 1,
+   "points": [
+    [
+     55.0,
+     5.0
+    ]
+   ],
+   "d": 3.0,
+   "depth": 8.3,
+   "head_d": 7.1,
+   "angle": 90.0
   }
  ],
  "notes": {
@@ -93,7 +111,13 @@
    "Recess 79.6 to 80.0"
   ],
   "merged_interruptions": false,
-  "raw_diameters": [],
+  "raw_diameters": [
+   {
+    "feature": 2,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
   "mirror": null,
   "gear": null,
   "fillet": {
@@ -105,6 +129,6 @@
    ],
    "fit_iou": 0.995
   },
-  "iou": 0.9947
+  "iou": 0.9968
  }
 }

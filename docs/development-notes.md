@@ -94,6 +94,34 @@ root circle is larger than the base circle (31 teeth at 25 degrees) the flank st
 is made when the part is built, so editing module or teeth later must keep the root on the same side of the base
 circle. A sector may lose up to 0.03 of IoU against the contour version (flat roots instead of mesh fillets).
 
+## Holes with a changing diameter, on any axis
+
+A hole shows up in the slices along its own axis as a circular inner ring whose diameter changes with depth.
+`profile_holes` reads that diameter profile from the face (the wide end) inwards: an optional flat part, an optional
+cone and the shank.
+
+- flat part then a step of at least 0.8 mm: counterbore (a smaller step is a chamfer or noise and is ignored);
+- cone from the face: countersink, the head diameter being the fit at the face and the angle snapped to the standard
+  ones;
+- flat part (at least three slices), then a cone: a **circular recess** with a countersunk hole in its floor. The
+  floor is where the cone's line reaches the flat diameter; the recess is a cut from the floor through the open side.
+
+It runs on the extrusion axis (`detect_holes`) and on the others (`find_blind_holes`). On the other axes:
+
+- a cone cut by a curved face is slightly oval, so rings with a circularity of at least 0.95 and an aspect ratio of at
+  most 1.4 count (`_rings_loose`) in profile tracks, with the diameter of the circle of equal area; constant-diameter
+  holes still need exact circles;
+- a hole whose both ends are open is a blind hole when exactly one end leads to material further along the axis (a
+  cavity) and the other to nothing (the outside): it is drilled from the outside and reaches one slice into the cavity;
+- the face of a countersunk hole moves out to the outermost point of the part around it, growing the head along the
+  cone, because on a curved face the cone goes on to the crown although only the opening is seen.
+
+Holes across the extrusion axis would otherwise show up as steps of the base. `hole_fill` hands the slicer the
+sections as if they had not been drilled: the hole, widened to a cylinder as wide as its head, clipped to a section
+just outside the hole (the part is prismatic there), which also restores a crown the hole cut off. If no such section
+fits, the hull of the section piece is used. Steps that only imitated a hole are then removed by the pruning;
+`Circular recess` cuts are never pruned.
+
 ## Rounded edges
 
 A fillet along a stadium or any curved outline shows up in the silhouettes only along the straight parts, so the
