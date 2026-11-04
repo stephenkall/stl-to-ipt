@@ -67,21 +67,79 @@ def test_gear_feature_validation_and_expansion():
     assert 640 < area < 700  # the 10-tooth m3 gear outline (the real mesh outline is 682 mm2)
 
 
+GEAR_PARAMETER_KEYS = ("module", "teeth", "pressure_angle", "phase", "cx", "cy", "pi", "base_r", "tip_r", "root_inner_r",
+                       "psi", "psi_a", "roll_tip", "roll_root", "theta0")
+
+
 def test_equations_use_a_short_pi_literal_and_no_pi_parameter():
-    names = {k: "g_" + k for k in ("module", "teeth", "pressure_angle", "phase", "cx", "cy", "pi", "base_r", "tip_r",
-                                   "root_inner_r", "psi", "psi_a", "roll_tip")}
+    names = {k: "g_" + k for k in GEAR_PARAMETER_KEYS}
     eq = inv.gear_curve_expressions(names, (1, 0, 0, 1))
     assert set(eq) == {"lower", "upper", "root"}
     for x, y, lo, hi in eq.values():
         assert "g_pi" not in x and "g_pi" not in y  # a pi parameter inside an equation breaks the extrusion
     assert inv.PI_LITERAL == "3.14159265" and len(inv.PI_LITERAL.replace(".", "")) <= 9
-    assert eq["lower"][2] == "0" and eq["lower"][3] == "g_roll_tip"
-    assert eq["root"][2] == "-g_psi"
+    assert eq["lower"][2] == "g_roll_root" and eq["lower"][3] == "g_roll_tip"
+    assert eq["root"][2] == "-g_theta0"
 
 
 def test_equations_follow_a_mirrored_sketch():
-    names = {k: "g_" + k for k in ("module", "teeth", "pressure_angle", "phase", "cx", "cy", "pi", "base_r", "tip_r",
-                                   "root_inner_r", "psi", "psi_a", "roll_tip")}
+    names = {k: "g_" + k for k in GEAR_PARAMETER_KEYS}
     ident = inv.gear_curve_expressions(names, (1, 0, 0, 1))["root"][0]
     mirrored = inv.gear_curve_expressions(names, (-1, 0, 0, 1))["root"][0]
     assert ident.startswith("(1) * (") and mirrored.startswith("(-1) * (")
+
+
+def _sector_outline(z=31, module=3.0, alpha=20.0, phase=2.9, center=(50.0, -24.0)):
+    """A gear sector on a plate: the full gear clipped to a box, joined with a plate along the bottom."""
+    from shapely.geometry import box
+    full = gears.gear_polygon(module, z, alpha, phase, center, 12, 1.25, 1.0)
+    return full.intersection(box(0, 0, 100, 30)).union(box(0, 0, 100, 5)).buffer(0)
+
+
+def test_sector_gear_is_recognized_with_its_tooth_count():
+    fit = gears.fit_sector_gear(_sector_outline())
+    assert fit is not None
+    assert fit["teeth"] == 31 and fit["module"] == 3.0 and fit["pressure_angle"] == 20.0
+    assert fit["center"] == [pytest.approx(50.0, abs=0.1), pytest.approx(-24.0, abs=0.1)]
+
+
+def test_sector_gear_composes_the_outline_from_gear_and_plate():
+    outline = _sector_outline()
+    fit = gears.fit_sector_gear(outline)
+    union, plate, exact = gears.compose_sector(outline, dict(fit, center=tuple(fit["center"])), outline.bounds)
+    assert not exact and len(plate) == 1  # the plate is a plain rectangle
+    assert plate[0].bounds == pytest.approx((0.0, 0.0, 100.0, 5.0), abs=0.2)
+    assert gears._iou(union, outline) > 0.97
+
+
+def test_round_boss_is_not_taken_for_a_gear_sector():
+    from shapely.geometry import Point
+    assert gears.fit_sector_gear(Point(22.5, 22.5).buffer(22.5, 64)) is None
+
+
+def test_flank_may_start_at_the_root_circle():
+    # 25 degrees on 31 teeth with the standard dedendum puts the root circle outside the base circle
+    rr = gears.radii(3.0, 31, 25.0, 1.25)
+    assert rr["root"] > rr["base"]
+    ups = {}
+
+    class FakeParameters:
+        def AddByExpression(self, name, expression, unit):
+            ups[name] = expression
+
+    class FakeComp:
+        class Parameters:
+            UserParameters = FakeParameters()
+
+    class Ctx:
+        @staticmethod
+        def unique(name):
+            return name
+
+    f = dict(GEAR, teeth=31, pressure_angle=25.0, dedendum=1.25)
+    inv.gear_parameters(FakeComp, Ctx, "g", f)
+    assert ups["g_roll_root"].startswith("sqrt(") and "theta0" not in ups["g_roll_root"]
+    f_small = dict(GEAR, teeth=31, pressure_angle=20.0, dedendum=1.6)
+    ups.clear()
+    inv.gear_parameters(FakeComp, Ctx, "g", f_small)
+    assert ups["g_roll_root"] == "0"
