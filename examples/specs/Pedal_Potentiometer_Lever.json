@@ -69,56 +69,6 @@
   },
   {
    "type": "extrusion",
-   "name": "Recess 11.1 to 14.0",
-   "plane": "YZ",
-   "offset": 11.07,
-   "direction": 1,
-   "operation": "cut",
-   "distance": 2.9,
-   "sketch": [
-    {
-     "shape": "contour",
-     "start": [
-      0.77,
-      30.16
-     ],
-     "segments": [
-      [
-       "L",
-       2.5,
-       32.0
-      ],
-      [
-       "L",
-       2.6,
-       35.0
-      ],
-      [
-       "L",
-       5.5,
-       35.0
-      ],
-      [
-       "L",
-       5.5,
-       32.0
-      ],
-      [
-       "L",
-       7.25,
-       30.07
-      ],
-      [
-       "L",
-       0.77,
-       30.16
-      ]
-     ]
-    }
-   ]
-  },
-  {
-   "type": "extrusion",
    "name": "Through cut axis Y",
    "plane": "XZ",
    "offset": 0.0,
@@ -171,11 +121,29 @@
      ]
     }
    ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 30.0,
+   "direction": 1,
+   "points": [
+    [
+     12.5,
+     4.0
+    ]
+   ],
+   "d": 3.0,
+   "depth": 5.0,
+   "head_d": 7.0,
+   "angle": 90.0
   }
  ],
  "notes": {
   "part": "Pedal_Potentiometer_Lever",
-  "estimated_iou": 0.99,
+  "estimated_iou": 0.9998,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    -55.0,
@@ -185,7 +153,6 @@
   "extrusion_axis": "X",
   "tolerance_mm": 0.12,
   "pruned_features": [
-   "Recess 10.3 to 11.1",
    "Recess 18.0 to 19.0"
   ],
   "merged_interruptions": false,
@@ -194,10 +161,16 @@
     "feature": 0,
     "shape": 1,
     "d": 8.0
+   },
+   {
+    "feature": 3,
+    "shape": null,
+    "d": 3.0
    }
   ],
   "mirror": null,
   "gear": null,
-  "iou": 0.992
+  "fillet": null,
+  "iou": 0.9999
  }
 }

@@ -42,6 +42,11 @@ An Inventor Hole feature placed on sketch points. `subtype` is `simple` (a blind
 `countersink` (needs `head_d` and `angle` in degrees) or `counterbore` (needs `head_d` and `head_depth`). `d` is the hole diameter, `depth` the
 drilled depth, `offset` the plane of the hole's face, and `points` a list of `[x, y]` centers.
 
+The plane of a hole does not have to be the base plane: holes across the extrusion axis are found too, including
+countersunk ones and holes that run from an outer face into a cavity. A countersunk hole that sits at the bottom of a
+cylindrical pocket is a `Circular recess` (an `extrusion` cut with a circle, from the pocket floor out through the
+open side) followed by a `countersink` hole whose `offset` is that floor.
+
 ## Gear feature
 
 ```json
