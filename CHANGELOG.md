@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/stephenkall/stl-to-ipt/compare/v0.4.0...v0.4.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* make Ctrl+C responsive and stop the queue on the first press ([a265fbc](https://github.com/stephenkall/stl-to-ipt/commit/a265fbc66f819f9c62b7087963b622e1e74f7975))
+* make Ctrl+C responsive and stop the queue on the first press ([d2aca2c](https://github.com/stephenkall/stl-to-ipt/commit/d2aca2c13cbcdc31aca18b3547566e5dbb2336ce))
+
 ## [0.4.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.3.0...v0.4.0) (2026-11-04)
 
 
