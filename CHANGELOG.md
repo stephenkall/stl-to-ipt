@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.4.1...v0.5.0) (2026-11-04)
+
+
+### Features
+
+* detect countersunk holes and circular recesses on every axis ([ea1d879](https://github.com/stephenkall/stl-to-ipt/commit/ea1d879cc82bf176a2d9f9b8579666a1131e9442))
+* detect countersunk holes and circular recesses on every axis ([7e33404](https://github.com/stephenkall/stl-to-ipt/commit/7e334046b5931ce958020d9d4de1e388df021f26))
+
 ## [0.4.1](https://github.com/stephenkall/stl-to-ipt/compare/v0.4.0...v0.4.1) (2026-11-04)
 
 
