@@ -1,0 +1,9 @@
+numpy
+scipy
+shapely>=2.0
+trimesh
+networkx
+rtree
+matplotlib
+tqdm
+pywin32; sys_platform == "win32"

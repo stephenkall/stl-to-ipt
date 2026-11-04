@@ -1,0 +1,218 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 8.0,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 68.5,
+     "y": 48.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 68.5,
+     "y": 48.5,
+     "d": 2.0
+    },
+    {
+     "shape": "circle",
+     "x": 68.5,
+     "y": 3.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 68.5,
+     "y": 3.5,
+     "d": 2.0
+    },
+    {
+     "shape": "circle",
+     "x": 3.5,
+     "y": 48.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 3.5,
+     "y": 48.5,
+     "d": 2.0
+    },
+    {
+     "shape": "circle",
+     "x": 3.5,
+     "y": 3.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 3.5,
+     "y": 3.5,
+     "d": 2.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 0.0 to 3.0",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 3.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      29.851,
+      26.0
+     ],
+     "segments": [
+      [
+       "L",
+       1.201,
+       45.862
+      ],
+      [
+       "A",
+       0.642,
+       50.514,
+       5.21,
+       51.553
+      ],
+      [
+       "L",
+       36.0,
+       30.256
+      ],
+      [
+       "L",
+       66.5,
+       51.389
+      ],
+      [
+       "A",
+       71.191,
+       50.736,
+       71.0,
+       46.0
+      ],
+      [
+       "L",
+       42.149,
+       26.0
+      ],
+      [
+       "L",
+       70.775,
+       6.16
+      ],
+      [
+       "A",
+       71.361,
+       1.484,
+       66.761,
+       0.463
+      ],
+      [
+       "L",
+       36.0,
+       21.743
+      ],
+      [
+       "L",
+       5.21,
+       0.446
+      ],
+      [
+       "A",
+       0.62,
+       1.511,
+       1.251,
+       6.181
+      ],
+      [
+       "L",
+       29.851,
+       26.0
+      ]
+     ]
+    },
+    {
+     "shape": "circle",
+     "x": 68.5,
+     "y": 3.5,
+     "d": 2.0
+    },
+    {
+     "shape": "circle",
+     "x": 68.5,
+     "y": 48.5,
+     "d": 2.0
+    },
+    {
+     "shape": "circle",
+     "x": 3.5,
+     "y": 48.5,
+     "d": 2.0
+    },
+    {
+     "shape": "circle",
+     "x": 3.5,
+     "y": 3.5,
+     "d": 2.0
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 3.0,
+   "direction": -1,
+   "points": [
+    [
+     60.278,
+     9.192
+    ],
+    [
+     60.278,
+     42.807
+    ],
+    [
+     11.722,
+     9.192
+    ],
+    [
+     11.722,
+     42.807
+    ]
+   ],
+   "d": 3.0,
+   "depth": 3.0,
+   "head_d": 6.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Phenolite_Holder",
+  "estimated_iou": 0.9994,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [
+   "Recess 7.5 to 8.0"
+  ],
+  "merged_interruptions": false,
+  "iou": 0.9952
+ }
+}

@@ -1,0 +1,267 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 15.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      10.0
+     ],
+     "segments": [
+      [
+       "L",
+       0.0,
+       38.0
+      ],
+      [
+       "L",
+       26.0,
+       38.0
+      ],
+      [
+       "L",
+       26.0,
+       33.0
+      ],
+      [
+       "L",
+       15.5,
+       33.0
+      ],
+      [
+       "L",
+       15.5,
+       34.5
+      ],
+      [
+       "L",
+       12.5,
+       34.5
+      ],
+      [
+       "L",
+       12.5,
+       32.874
+      ],
+      [
+       "A",
+       5.0,
+       24.0,
+       12.5,
+       15.126
+      ],
+      [
+       "L",
+       12.5,
+       13.5
+      ],
+      [
+       "L",
+       15.5,
+       13.5
+      ],
+      [
+       "L",
+       15.5,
+       15.0
+      ],
+      [
+       "L",
+       26.0,
+       15.0
+      ],
+      [
+       "L",
+       26.0,
+       10.0
+      ],
+      [
+       "L",
+       0.0,
+       10.0
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 0.0 to 3.0",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 3.0,
+   "sketch": [
+    {
+     "shape": "rectangle",
+     "x": 0.0,
+     "y": 10.0,
+     "width": 26.0,
+     "height": 28.0
+    },
+    {
+     "shape": "circle",
+     "x": 14.0,
+     "y": 24.0,
+     "d": 8.0
+    },
+    {
+     "shape": "rectangle",
+     "x": 12.5,
+     "y": 13.5,
+     "width": 3.0,
+     "height": 3.0
+    },
+    {
+     "shape": "rectangle",
+     "x": 12.5,
+     "y": 31.5,
+     "width": 3.0,
+     "height": 3.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 10.0 to 15.0",
+   "plane": "XY",
+   "offset": 10.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 5.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      0.0
+     ],
+     "segments": [
+      [
+       "L",
+       0.0,
+       48.0
+      ],
+      [
+       "L",
+       26.0,
+       48.0
+      ],
+      [
+       "L",
+       26.0,
+       33.0
+      ],
+      [
+       "L",
+       15.5,
+       33.0
+      ],
+      [
+       "L",
+       15.5,
+       34.5
+      ],
+      [
+       "L",
+       12.5,
+       34.5
+      ],
+      [
+       "L",
+       12.5,
+       32.874
+      ],
+      [
+       "A",
+       5.0,
+       24.0,
+       12.5,
+       15.126
+      ],
+      [
+       "L",
+       12.5,
+       13.5
+      ],
+      [
+       "L",
+       15.5,
+       13.5
+      ],
+      [
+       "L",
+       15.5,
+       15.0
+      ],
+      [
+       "L",
+       26.0,
+       15.0
+      ],
+      [
+       "L",
+       26.0,
+       0.0
+      ],
+      [
+       "L",
+       0.0,
+       0.0
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 10.0,
+   "direction": 1,
+   "points": [
+    [
+     21.0,
+     5.0
+    ],
+    [
+     21.0,
+     43.0
+    ],
+    [
+     5.0,
+     5.0
+    ],
+    [
+     5.0,
+     43.0
+    ]
+   ],
+   "d": 3.0,
+   "depth": 5.0,
+   "head_d": 7.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Yaw_Potentiometer_Support",
+  "estimated_iou": 1.0,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [],
+  "merged_interruptions": false,
+  "iou": 0.9996
+ }
+}

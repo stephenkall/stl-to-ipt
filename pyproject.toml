@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stl-to-ipt"
+dynamic = ["version"]
+description = "Convert STL meshes into lean, parametric Autodesk Inventor part files (.ipt)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "shapely>=2.0",
+    "trimesh",
+    "networkx",
+    "rtree",
+    "matplotlib",
+    "tqdm",
+    "pywin32; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+stl-to-ipt = "stl_to_ipt.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "stl_to_ipt.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

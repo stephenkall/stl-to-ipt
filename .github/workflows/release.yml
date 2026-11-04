@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Version and tag with release-please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    name: Build and publish Windows package
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: windows-latest
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build release package
+        run: python scripts/package.py
+
+      - name: Verify the package version matches the tag
+        shell: bash
+        run: |
+          tag="${{ needs.release-please.outputs.tag_name }}"
+          ls dist/*"${tag#v}"-windows-x64.zip
+
+      - name: Upload package and checksums to the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" dist/*.zip dist/SHA256SUMS.txt --clobber

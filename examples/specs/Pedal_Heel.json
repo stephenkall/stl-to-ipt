@@ -1,0 +1,104 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 80.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      31.186
+     ],
+     "segments": [
+      [
+       "A",
+       55.0,
+       8.404,
+       110.0,
+       31.186
+      ],
+      [
+       "L",
+       110.0,
+       21.953
+      ],
+      [
+       "L",
+       109.748,
+       21.108
+      ],
+      [
+       "A",
+       102.969,
+       15.484,
+       95.549,
+       10.73
+      ],
+      [
+       "A",
+       55.0,
+       0.0,
+       14.451,
+       10.73
+      ],
+      [
+       "A",
+       7.169,
+       15.396,
+       0.441,
+       20.827
+      ],
+      [
+       "L",
+       0.0,
+       22.08
+      ],
+      [
+       "L",
+       0.0,
+       31.186
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Through cut axis Y",
+   "plane": "XZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "cut",
+   "distance": "through_all",
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 55.0,
+     "y": 5.0,
+     "d": 3.0
+    }
+   ]
+  }
+ ],
+ "notes": {
+  "part": "Pedal_Heel",
+  "estimated_iou": 0.9909,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [
+   "Recess 3.5 to 6.4",
+   "Recess 79.2 to 79.6",
+   "Recess 79.6 to 80.0"
+  ],
+  "merged_interruptions": false,
+  "iou": 0.9902
+ }
+}

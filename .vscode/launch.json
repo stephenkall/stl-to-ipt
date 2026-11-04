@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "stl-to-ipt: run pipeline",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "stl_to_ipt",
+      "args": ["run", "${input:stlDir}", "${workspaceFolder}/output"],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "stl-to-ipt: validate example specs",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "stl_to_ipt",
+      "args": ["build", "${workspaceFolder}/examples/specs", "${workspaceFolder}/output/ipt", "--validate-only"],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "pytest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "stlDir",
+      "type": "promptString",
+      "description": "Folder that contains the STL files"
+    }
+  ]
+}

@@ -1,0 +1,254 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 11.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      22.782
+     ],
+     "segments": [
+      [
+       "L",
+       0.0,
+       180.0
+      ],
+      [
+       "A",
+       1.464,
+       183.536,
+       5.0,
+       185.0
+      ],
+      [
+       "L",
+       105.0,
+       185.0
+      ],
+      [
+       "A",
+       108.536,
+       183.536,
+       110.0,
+       180.0
+      ],
+      [
+       "L",
+       110.0,
+       22.782
+      ],
+      [
+       "A",
+       102.109,
+       15.892,
+       93.367,
+       10.121
+      ],
+      [
+       "L",
+       89.787,
+       16.318
+      ],
+      [
+       "L",
+       87.197,
+       14.822
+      ],
+      [
+       "L",
+       90.733,
+       8.694
+      ],
+      [
+       "A",
+       74.114,
+       2.388,
+       56.5,
+       0.0
+      ],
+      [
+       "L",
+       56.5,
+       6.596
+      ],
+      [
+       "L",
+       53.5,
+       6.596
+      ],
+      [
+       "L",
+       53.5,
+       0.0
+      ],
+      [
+       "A",
+       35.886,
+       2.388,
+       19.267,
+       8.694
+      ],
+      [
+       "L",
+       22.803,
+       14.822
+      ],
+      [
+       "L",
+       20.213,
+       16.318
+      ],
+      [
+       "L",
+       16.633,
+       10.121
+      ],
+      [
+       "A",
+       7.891,
+       15.892,
+       0.0,
+       22.782
+      ]
+     ]
+    },
+    {
+     "shape": "circle",
+     "x": 97.5,
+     "y": 111.0,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 82.0,
+     "y": 130.5,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 72.5,
+     "y": 67.5,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 72.5,
+     "y": 32.5,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 37.5,
+     "y": 32.5,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 37.5,
+     "y": 67.5,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 28.0,
+     "y": 130.5,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 12.5,
+     "y": 111.0,
+     "d": 3.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Through cut axis X",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "cut",
+   "distance": "through_all",
+   "sketch": [
+    {
+     "shape": "rectangle",
+     "x": 180.0,
+     "y": 10.0,
+     "width": 5.0,
+     "height": 1.0
+    },
+    {
+     "shape": "rectangle",
+     "x": 24.0,
+     "y": 10.0,
+     "width": 2.0,
+     "height": 1.0,
+     "pattern": {
+      "type": "linear",
+      "nx": 39,
+      "ny": 1,
+      "dx": 4.0,
+      "dy": 0
+     }
+    },
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      3.5
+     ],
+     "segments": [
+      [
+       "L",
+       0.0,
+       11.0
+      ],
+      [
+       "L",
+       22.0,
+       11.0
+      ],
+      [
+       "L",
+       22.0,
+       10.0
+      ],
+      [
+       "L",
+       0.0,
+       10.0
+      ],
+      [
+       "L",
+       0.0,
+       3.5
+      ]
+     ]
+    }
+   ]
+  }
+ ],
+ "notes": {
+  "part": "Pedal_Main_Body",
+  "estimated_iou": 0.997,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [
+   "Recess 10.0 to 11.0",
+   "Pad 10.0 to 11.0"
+  ],
+  "merged_interruptions": false,
+  "iou": 0.9966
+ }
+}

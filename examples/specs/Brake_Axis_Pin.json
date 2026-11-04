@@ -1,0 +1,94 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 90.0,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 9.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 0.0 to 10.0",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 10.0,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 15.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Recess 84.2 to 85.9",
+   "plane": "YZ",
+   "offset": 84.16,
+   "direction": 1,
+   "operation": "cut",
+   "distance": 1.72,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      7.575,
+      6.068
+     ],
+     "segments": [
+      [
+       "L",
+       7.533,
+       8.88
+      ],
+      [
+       "L",
+       11.708,
+       8.942
+      ],
+      [
+       "A",
+       12.007,
+       7.47,
+       11.721,
+       6.046
+      ],
+      [
+       "L",
+       7.575,
+       6.068
+      ]
+     ]
+    }
+   ]
+  }
+ ],
+ "notes": {
+  "part": "Brake_Axis_Pin",
+  "estimated_iou": 0.9985,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "X",
+  "tolerance_mm": 0.12,
+  "pruned_features": [
+   "Recess 83.6 to 84.2",
+   "Recess 85.9 to 86.4"
+  ],
+  "merged_interruptions": false,
+  "iou": 0.9971
+ }
+}

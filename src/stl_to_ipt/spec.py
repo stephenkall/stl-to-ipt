@@ -1,0 +1,284 @@
+"""Shared spec utilities: loading, validation and expansion (no Inventor dependency).
+
+A spec is a JSON document that describes a part as a list of features. In the ``"model"`` system every
+feature uses global X/Y/Z coordinates with the mesh's minimum corner at the origin.
+"""
+import json
+import math
+
+from shapely.geometry import LineString, Point, Polygon
+
+SHAPES = {"rectangle", "circle", "slot", "polygon", "contour"}
+# Model system: plane name -> (normal axis, axis A, axis B) with 0=X, 1=Y, 2=Z
+PLANE_AXES = {"XY": (2, 0, 1), "XZ": (1, 0, 2), "YZ": (0, 1, 2)}
+OPERATIONS = {"new", "join", "cut"}
+PLANES = {"XY", "XZ", "YZ"}
+SELECTIONS = {"all", "vertical", "top", "bottom"}
+THROUGH_ALL = "through_all"
+
+
+def sample_arc(p0, pm, p1, n=24):
+    """Points of the arc that passes through p0, pm (a point between the ends) and p1."""
+    ax, ay = p0
+    bx, by = pm
+    cx, cy = p1
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-12:
+        return [p0, pm, p1]
+    a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
+    ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+    uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+    r = math.hypot(ax - ux, ay - uy)
+    a0 = math.atan2(ay - uy, ax - ux)
+    am = math.atan2(by - uy, bx - ux)
+    a1 = math.atan2(cy - uy, cx - ux)
+    tau = 2 * math.pi
+    s_m, s_1 = (am - a0) % tau, (a1 - a0) % tau
+    sweep = s_1 if s_m < s_1 else s_1 - tau
+    return [(ux + r * math.cos(a0 + sweep * k / n), uy + r * math.sin(a0 + sweep * k / n))
+            for k in range(n + 1)]
+
+
+def contour_points(s, arc_steps=24):
+    """Polyline of a ``contour`` shape (arcs are sampled with ``arc_steps`` segments)."""
+    pts = [tuple(s["start"])]
+    for seg in s["segments"]:
+        if seg[0] == "L":
+            pts.append((seg[1], seg[2]))
+        else:  # ["A", mid_x, mid_y, end_x, end_y]
+            pts.extend(sample_arc(pts[-1], (seg[1], seg[2]), (seg[3], seg[4]), arc_steps)[1:])
+    return pts
+
+
+def shape_to_geometry(s):
+    """Shapely geometry of one sketch shape."""
+    shape = s["shape"]
+    if shape == "rectangle":
+        x, y, w, h = s["x"], s["y"], s["width"], s["height"]
+        if s.get("centered"):
+            x, y = x - w / 2.0, y - h / 2.0
+        return Polygon([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
+    if shape == "circle":
+        return Point(s["x"], s["y"]).buffer(s["d"] / 2.0, 64)
+    if shape == "polygon":
+        p = Polygon(s["points"])
+        return p if p.is_valid else p.buffer(0)
+    if shape == "slot":
+        return LineString([(s["x1"], s["y1"]), (s["x2"], s["y2"])]).buffer(s["width"] / 2.0, 32)
+    if shape == "contour":
+        p = Polygon(contour_points(s))
+        return p if p.is_valid else p.buffer(0)
+    raise ValueError("unknown shape: %s" % shape)
+
+
+def sketch_geometry(sketch):
+    """Planar region of a sketch: nested contours become holes (XOR)."""
+    g = None
+    for s in sketch_shapes(sketch):
+        p = shape_to_geometry(s)
+        g = p if g is None else g.symmetric_difference(p)
+    return g
+
+
+def load(path):
+    with open(path, encoding="utf-8") as f:
+        spec = json.load(f)
+    return normalize(spec)
+
+
+def _resolve(obj, params):
+    """Replace strings that name a parameter with its numeric value."""
+    if isinstance(obj, str) and obj in params:
+        return float(params[obj])
+    if isinstance(obj, list):
+        return [_resolve(o, params) for o in obj]
+    if isinstance(obj, dict):
+        return {k: _resolve(v, params) for k, v in obj.items()}
+    return obj
+
+
+def legacy_to_features(spec):
+    """Convert the simple legacy format (``base`` + ``holes``) to a feature list."""
+    feats = []
+    base = spec["base"]
+    if base["type"] == "rectangle":
+        feats.append({
+            "type": "extrusion", "plane": "XY", "operation": "new",
+            "distance": base["thickness"],
+            "sketch": [{"shape": "rectangle", "x": 0, "y": 0,
+                        "width": base["width"], "height": base["height"]}],
+        })
+    elif base["type"] == "cylinder":
+        feats.append({
+            "type": "extrusion", "plane": "XY", "operation": "new",
+            "distance": base["length"],
+            "sketch": [{"shape": "circle", "x": 0, "y": 0, "d": base["diameter"]}],
+        })
+    else:
+        raise ValueError("unknown base type: %s" % base["type"])
+    if spec.get("holes"):
+        feats.append({
+            "type": "extrusion", "plane": "XY", "operation": "cut",
+            "distance": THROUGH_ALL,
+            "sketch": [{"shape": "circle", "x": f["x"], "y": f["y"], "d": f["d"]}
+                       for f in spec["holes"]],
+        })
+    return feats
+
+
+def normalize(spec):
+    spec = dict(spec)
+    params = spec.get("params", {})
+    if "features" not in spec:
+        spec["features"] = legacy_to_features(spec)
+    spec["features"] = _resolve(spec["features"], params)
+    return spec
+
+
+def expand_shape(s):
+    """Expand the optional ``pattern`` field (linear or circular) into plain shapes."""
+    pat = s.get("pattern")
+    if not pat:
+        return [s]
+    base = {k: v for k, v in s.items() if k != "pattern"}
+    out = []
+    if pat["type"] == "linear":
+        nx, ny = int(pat.get("nx", 1)), int(pat.get("ny", 1))
+        for i in range(nx):
+            for j in range(ny):
+                n = dict(base)
+                n["x"] = base["x"] + i * pat.get("dx", 0)
+                n["y"] = base["y"] + j * pat.get("dy", 0)
+                if nx == 1 or ny == 1:  # 1D pattern: remember the link to the previous copy (parametric dims)
+                    n["_pattern"] = (id(s), i + j)
+                    n["_dx"], n["_dy"] = pat.get("dx", 0), pat.get("dy", 0)
+                out.append(n)
+    elif pat["type"] == "circular":
+        cx, cy = pat.get("cx", 0), pat.get("cy", 0)
+        r = math.hypot(base["x"] - cx, base["y"] - cy)
+        a0 = math.atan2(base["y"] - cy, base["x"] - cx)
+        count = int(pat["n"])
+        for k in range(count):
+            a = a0 + 2 * math.pi * k / count
+            n = dict(base)
+            n["x"] = cx + r * math.cos(a)
+            n["y"] = cy + r * math.sin(a)
+            out.append(n)
+    else:
+        raise ValueError("unknown pattern: %s" % pat["type"])
+    return out
+
+
+def sketch_shapes(sketch):
+    res = []
+    for s in sketch:
+        res.extend(expand_shape(s))
+    return res
+
+
+def slot_points(s):
+    """Return (a1, a2, mid_a2, b2, b1, mid_b1) in mm, with a = +normal side and b = -normal side."""
+    x1, y1, x2, y2, w = s["x1"], s["y1"], s["x2"], s["y2"], s["width"]
+    r = w / 2.0
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    ux, uy = dx / length, dy / length
+    nx, ny = -uy, ux
+    a1 = (x1 + nx * r, y1 + ny * r)
+    a2 = (x2 + nx * r, y2 + ny * r)
+    b2 = (x2 - nx * r, y2 - ny * r)
+    b1 = (x1 - nx * r, y1 - ny * r)
+    mid2 = (x2 + ux * r, y2 + uy * r)
+    mid1 = (x1 - ux * r, y1 - uy * r)
+    return a1, a2, mid2, b2, b1, mid1
+
+
+def validate(spec):
+    """Return ``(errors, warnings)``."""
+    errors, warnings = [], []
+    feats = spec.get("features", [])
+    if not feats:
+        errors.append("No features defined.")
+    if feats and feats[0].get("operation", "new") == "cut":
+        errors.append("The first feature cannot be a cut.")
+    for i, f in enumerate(feats, 1):
+        t = f.get("type")
+        tag = "feature %d (%s)" % (i, t)
+        if t == "extrusion":
+            if f.get("plane", "XY") not in PLANES:
+                errors.append("%s: invalid plane." % tag)
+            if f.get("operation", "new") not in OPERATIONS:
+                errors.append("%s: invalid operation." % tag)
+            d = f.get("distance")
+            if d != THROUGH_ALL and not (isinstance(d, (int, float)) and d > 0):
+                errors.append("%s: distance must be a number > 0 or '%s'." % (tag, THROUGH_ALL))
+            if d == THROUGH_ALL and f.get("operation") != "cut":
+                errors.append("%s: '%s' is only valid for cuts." % (tag, THROUGH_ALL))
+            if not f.get("sketch"):
+                errors.append("%s: empty sketch." % tag)
+            for s in sketch_shapes(f.get("sketch", [])):
+                shape = s.get("shape")
+                if shape not in SHAPES:
+                    errors.append("%s: unknown shape '%s'." % (tag, shape))
+                elif shape == "circle" and not s.get("d", 0) > 0:
+                    errors.append("%s: circle with invalid diameter." % tag)
+                elif shape == "rectangle" and not (s.get("width", 0) > 0 and s.get("height", 0) > 0):
+                    errors.append("%s: rectangle with invalid dimensions." % tag)
+                elif shape == "slot" and not (s.get("width", 0) > 0 and
+                                              (s["x1"], s["y1"]) != (s["x2"], s["y2"])):
+                    errors.append("%s: invalid slot." % tag)
+                elif shape == "polygon" and len(s.get("points", [])) < 3:
+                    errors.append("%s: polygon needs >= 3 points." % tag)
+                elif shape == "contour" and not s.get("segments"):
+                    errors.append("%s: contour without segments." % tag)
+            if f.get("direction", 1) not in (1, -1):
+                errors.append("%s: direction must be 1 or -1." % tag)
+        elif t == "hole":
+            if f.get("plane") not in PLANES or not f.get("points"):
+                errors.append("%s: invalid plane/points." % tag)
+            if f.get("subtype", "simple") not in ("simple", "countersink", "counterbore"):
+                errors.append("%s: invalid subtype." % tag)
+            if not (f.get("d", 0) > 0 and f.get("depth", 0) > 0):
+                errors.append("%s: d and depth must be > 0." % tag)
+            if f.get("subtype") in ("countersink", "counterbore") and not f.get("head_d", 0) > f.get("d", 0):
+                errors.append("%s: head_d must be larger than d." % tag)
+            if f.get("direction", 1) not in (1, -1):
+                errors.append("%s: direction must be 1 or -1." % tag)
+        elif t == "revolve":
+            p = f.get("profile", [])
+            if len(p) < 3:
+                errors.append("%s: profile needs >= 3 points." % tag)
+            if any(pt[0] < 0 for pt in p):
+                errors.append("%s: negative radius in profile (x must be >= 0)." % tag)
+        elif t in ("fillet", "chamfer"):
+            if f.get("selection", "all") not in SELECTIONS:
+                errors.append("%s: invalid selection." % tag)
+            v = f.get("radius" if t == "fillet" else "distance", 0)
+            if not v > 0:
+                errors.append("%s: value must be > 0." % tag)
+        else:
+            errors.append("%s: unknown feature type." % tag)
+
+    # Hole outside the base rectangle (simple check, legacy format only)
+    if feats and feats[0].get("type") == "extrusion" and spec.get("system") != "model":
+        rects = [s for s in feats[0]["sketch"] if s.get("shape") == "rectangle"]
+        if len(rects) == 1:
+            r = rects[0]
+            for j, f in enumerate(feats[1:], 2):
+                if f.get("type") == "extrusion" and f.get("operation") == "cut":
+                    for s in sketch_shapes(f["sketch"]):
+                        if s.get("shape") == "circle":
+                            rr = s["d"] / 2.0
+                            if (s["x"] - rr < r["x"] or s["y"] - rr < r["y"] or
+                                    s["x"] + rr > r["x"] + r["width"] or
+                                    s["y"] + rr > r["y"] + r["height"]):
+                                warnings.append("feature %d: hole at (%.1f, %.1f) leaves the base part." %
+                                                (j, s["x"], s["y"]))
+                            else:
+                                m = min(s["x"] - rr - r["x"], s["y"] - rr - r["y"],
+                                        r["x"] + r["width"] - s["x"] - rr,
+                                        r["y"] + r["height"] - s["y"] - rr)
+                                if m < s["d"] * 0.5:
+                                    warnings.append("feature %d: hole at (%.1f, %.1f) leaves a thin wall "
+                                                    "to the edge (%.1f mm)." % (j, s["x"], s["y"], m))
+    return errors, warnings

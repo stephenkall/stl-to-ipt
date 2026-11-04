@@ -1,0 +1,131 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 40.0,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 25.0,
+     "y": 20.0,
+     "d": 25.0
+    },
+    {
+     "shape": "circle",
+     "x": 25.0,
+     "y": 20.0,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 25.0,
+     "y": 80.0,
+     "d": 25.0
+    },
+    {
+     "shape": "circle",
+     "x": 25.0,
+     "y": 80.0,
+     "d": 3.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 0.0 to 10.0",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 10.0,
+   "sketch": [
+    {
+     "shape": "rectangle",
+     "x": 0.0,
+     "y": 0.0,
+     "width": 50.0,
+     "height": 100.0
+    },
+    {
+     "shape": "contour",
+     "start": [
+      10.0,
+      36.771
+     ],
+     "segments": [
+      [
+       "A",
+       25.0,
+       42.5,
+       40.0,
+       36.771
+      ],
+      [
+       "L",
+       40.0,
+       63.229
+      ],
+      [
+       "A",
+       25.0,
+       57.5,
+       10.0,
+       63.229
+      ],
+      [
+       "L",
+       10.0,
+       36.771
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 10.0,
+   "direction": -1,
+   "points": [
+    [
+     42.5,
+     7.5
+    ],
+    [
+     42.5,
+     92.5
+    ],
+    [
+     7.5,
+     92.5
+    ],
+    [
+     7.5,
+     7.5
+    ]
+   ],
+   "d": 3.0,
+   "depth": 10.0,
+   "head_d": 9.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Central_Pins",
+  "estimated_iou": 0.9995,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [],
+  "merged_interruptions": false,
+  "iou": 0.9998
+ }
+}
