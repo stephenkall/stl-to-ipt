@@ -7,6 +7,7 @@ import copy
 import json
 import math
 
+import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 
 from . import gears
@@ -17,6 +18,8 @@ PLANE_AXES = {"XY": (2, 0, 1), "XZ": (1, 0, 2), "YZ": (0, 1, 2)}
 OPERATIONS = {"new", "join", "cut"}
 PLANES = {"XY", "XZ", "YZ"}
 SELECTIONS = {"all", "vertical", "top", "bottom"}
+# model system: the outer edges of the cap where the base extrusion starts / ends (the holes are left alone)
+BASE_OUTLINE_SELECTIONS = ("base_start_outline", "base_end_outline")
 THROUGH_ALL = "through_all"
 
 
@@ -81,6 +84,43 @@ def sketch_geometry(sketch):
         p = shape_to_geometry(s)
         g = p if g is None else g.symmetric_difference(p)
     return g
+
+
+def base_outline(base):
+    """(filled outline, outline edges) of the base extrusion's sketch: the outer rings only, holes ignored."""
+    from shapely.geometry import MultiLineString
+    from shapely.ops import unary_union
+    region = sketch_geometry(base["sketch"])
+    polys = [p for p in getattr(region, "geoms", [region]) if p.geom_type == "Polygon"]
+    filled = unary_union([Polygon(p.exterior) for p in polys])
+    return filled, MultiLineString([p.exterior for p in polys])
+
+
+def fillet_inset(radius, t):
+    """How far a rolling-ball fillet of ``radius`` has eaten into the outline at distance ``t`` from the cap."""
+    t = np.asarray(t, dtype=float)
+    return np.where((t >= 0) & (t < radius), radius - np.sqrt(np.maximum(radius ** 2 - (radius - t) ** 2, 0.0)), 0.0)
+
+
+def edge_fillet_removed(f, base, X, Y, Z):
+    """Mask of the material a ``base_*_outline`` fillet removes from the base extrusion, for point arrays."""
+    import shapely
+    n, A, B = PLANE_AXES[base["plane"]]
+    co = [X, Y, Z]
+    lo, step, dist = base.get("offset", 0.0), base.get("direction", 1), base["distance"]
+    t = (co[n] - lo) * step if f["selection"] == "base_start_outline" else (lo + step * dist - co[n]) * step
+    shape = np.broadcast(X, Y, Z).shape
+    t = np.broadcast_to(t, shape)
+    removed = np.zeros(shape, bool)
+    near = (t >= 0) & (t < f["radius"])
+    if not near.any():
+        return removed
+    idx = np.nonzero(near)
+    pa, pb = np.broadcast_to(co[A], shape)[idx], np.broadcast_to(co[B], shape)[idx]
+    filled, edges = base_outline(base)
+    inside = shapely.contains_xy(filled, pa, pb) | shapely.intersects_xy(filled, pa, pb)
+    removed[idx] = inside & (shapely.distance(edges, shapely.points(pa, pb)) < fillet_inset(f["radius"], t[idx]))
+    return removed
 
 
 def load(path):
@@ -391,7 +431,16 @@ def validate(spec):
             if any(pt[0] < 0 for pt in p):
                 errors.append("%s: negative radius in profile (x must be >= 0)." % tag)
         elif t in ("fillet", "chamfer"):
-            if f.get("selection", "all") not in SELECTIONS:
+            selection = f.get("selection", "all")
+            if selection in BASE_OUTLINE_SELECTIONS:
+                base = feats[0]
+                if t != "fillet" or spec.get("system") != "model" or base.get("type") != "extrusion" \
+                        or base.get("operation") != "new" or i != 2:
+                    errors.append("%s: %s needs a model-system fillet right after the base extrusion." % (
+                        tag, selection))
+                elif isinstance(base["distance"], (int, float)) and f.get("radius", 0) > base["distance"]:
+                    errors.append("%s: the radius is larger than the base extrusion." % tag)
+            elif selection not in SELECTIONS:
                 errors.append("%s: invalid selection." % tag)
             v = f.get("radius" if t == "fillet" else "distance", 0)
             if not v > 0:

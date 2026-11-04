@@ -48,7 +48,7 @@ def _close_group(group, values, result):
 
 # --------------------------------------------------------------------------- spec level
 _SCALARS = ("offset", "distance", "x", "y", "d", "width", "height", "x1", "y1", "x2", "y2", "depth", "head_d",
-            "head_depth")
+            "head_depth", "radius")
 
 
 def round_spec(spec):

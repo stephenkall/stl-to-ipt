@@ -18,50 +18,50 @@
      ],
      "segments": [
       [
-       "A",
-       55.0,
-       8.4,
-       110.0,
-       31.2
-      ],
-      [
-       "L",
-       110.0,
-       21.95
-      ],
-      [
-       "L",
-       109.75,
-       21.1
-      ],
-      [
-       "A",
-       102.958,
-       15.493,
-       95.55,
-       10.73
-      ],
-      [
-       "A",
-       55.0,
-       0.0,
-       14.45,
-       10.73
-      ],
-      [
-       "A",
-       7.181,
-       15.407,
-       0.45,
-       20.83
-      ],
-      [
        "L",
        0.0,
        22.1
       ],
       [
        "L",
+       0.45,
+       20.83
+      ],
+      [
+       "A",
+       7.679,
+       15.073,
+       15.5,
+       10.15
+      ],
+      [
+       "A",
+       55.862,
+       0.005,
+       96.0,
+       11.0
+      ],
+      [
+       "A",
+       103.032,
+       15.562,
+       109.55,
+       20.83
+      ],
+      [
+       "L",
+       110.0,
+       21.84
+      ],
+      [
+       "L",
+       110.0,
+       31.2
+      ],
+      [
+       "A",
+       55.0,
+       8.4,
        0.0,
        31.2
       ]
@@ -70,21 +70,10 @@
    ]
   },
   {
-   "type": "extrusion",
-   "name": "Through cut axis Y",
-   "plane": "XZ",
-   "offset": 0.0,
-   "direction": 1,
-   "operation": "cut",
-   "distance": "through_all",
-   "sketch": [
-    {
-     "shape": "circle",
-     "x": 55.0,
-     "y": 5.0,
-     "d": 3.0
-    }
-   ]
+   "type": "fillet",
+   "name": "Edge fillet",
+   "selection": "base_end_outline",
+   "radius": 2.0
   }
  ],
  "notes": {
@@ -104,15 +93,18 @@
    "Recess 79.6 to 80.0"
   ],
   "merged_interruptions": false,
-  "raw_diameters": [
-   {
-    "feature": 1,
-    "shape": 0,
-    "d": 3.0
-   }
-  ],
+  "raw_diameters": [],
   "mirror": null,
   "gear": null,
-  "iou": 0.9926
+  "fillet": {
+   "radius": [
+    2.0
+   ],
+   "selection": [
+    "base_end_outline"
+   ],
+   "fit_iou": 0.995
+  },
+  "iou": 0.9947
  }
 }

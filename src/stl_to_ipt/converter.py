@@ -613,6 +613,11 @@ def occupancy(spec, ext, step):
             X, Y, Z = np.meshgrid(ax[0], ax[1], ax[2], indexing="ij")
             occ &= ~hole_removed_mask(f, X, Y, Z)
             continue
+        if f["type"] in ("fillet", "chamfer"):
+            if f.get("selection") in sp.BASE_OUTLINE_SELECTIONS:
+                X, Y, Z = np.meshgrid(ax[0], ax[1], ax[2], indexing="ij")
+                occ &= ~sp.edge_fillet_removed(f, spec["features"][0], X, Y, Z)
+            continue
         n, A, B = sp.PLANE_AXES[f["plane"]]
         g = sketch_region(f)
         ga, gb = np.meshgrid(ax[A], ax[B], indexing="ij")
@@ -641,6 +646,10 @@ def contains(spec, ext, pts):
     for f in spec["features"]:
         if f["type"] == "hole":
             res &= ~hole_removed_mask(f, pts[:, 0], pts[:, 1], pts[:, 2])
+            continue
+        if f["type"] in ("fillet", "chamfer"):
+            if f.get("selection") in sp.BASE_OUTLINE_SELECTIONS:
+                res &= ~sp.edge_fillet_removed(f, spec["features"][0], pts[:, 0], pts[:, 1], pts[:, 2])
             continue
         n, A, B = sp.PLANE_AXES[f["plane"]]
         g = sketch_region(f)
@@ -1168,6 +1177,112 @@ def _sector_features(fit, silhouette, base):
     return feats
 
 
+def _inset_profile(m, n, level_of, full, hs):
+    """How far the mesh section is inset from the full outline at each distance in ``hs`` from a cap.
+
+    The inset is the ``d`` for which the outline shrunk by ``d`` has the area of the section (the section is
+    measured with its holes filled). None where the mesh has no section."""
+    insets = []
+    for h in hs:
+        region = section(m, n, level_of(h))
+        if region is None or region.is_empty:
+            insets.append(None)
+            continue
+        target = sum(Polygon(p.exterior).area for p in getattr(region, "geoms", [region]))
+        lo, hi = 0.0, full.area / max(full.length, 1e-9) * 2.0
+        for _ in range(14):
+            mid = (lo + hi) / 2.0
+            if full.buffer(-mid).area > target:
+                lo = mid
+            else:
+                hi = mid
+        insets.append((lo + hi) / 2.0)
+    return insets
+
+
+def _fit_fillet_radius(hs, insets, max_radius):
+    """Radius of the rolling-ball fillet that explains the insets, with its worst error; None if there is none."""
+    pairs = [(h, d) for h, d in zip(hs, insets) if d is not None]
+    if len(pairs) < 8 or max(d for _, d in pairs) < 0.5:
+        return None  # no sizeable inset near this cap
+    h = np.array([p[0] for p in pairs])
+    d = np.array([p[1] for p in pairs])
+    best = None
+    for radius in np.arange(1.0, max_radius + 1e-9, 0.25):
+        err = np.abs(d - sp.fillet_inset(radius, h))
+        score = float(np.sqrt((err ** 2).mean()))
+        if best is None or score < best[0]:
+            best = (score, float(radius), float(err.max()))
+    return best[1] if best[0] < 0.2 and best[2] < 0.6 else None
+
+
+def _apply_edge_fillet(m, spec, ext, tol, pts, inside):
+    """Replace the steps and corner cuts that imitate a rounded edge of the base by one ``fillet`` feature.
+
+    The base extrusion gets the full outline (the largest section) and every cap whose section shrinks like a
+    rolling-ball fillet gets a fillet on its outer edges. The features that only imitated the rounding are dropped
+    when the IoU does not suffer. Return a note for the spec, or None."""
+    base = spec["features"][0]
+    if base["type"] != "extrusion" or base.get("operation") != "new" or base.get("offset", 0.0) != 0.0 \
+            or base.get("direction", 1) != 1 or not isinstance(base["distance"], (int, float)):
+        return None
+    n = sp.PLANE_AXES[base["plane"]][0]
+    height = float(base["distance"])
+    if height < 2.0:
+        return None
+    # the full outline: the section with the largest area
+    levels = np.linspace(0.05 * height, 0.95 * height, 25)
+    sections = [(section(m, n, z), z) for z in levels]
+    sections = [(r, z) for r, z in sections if r is not None and not r.is_empty]
+    if not sections:
+        return None
+    region = max(sections, key=lambda rz: sum(Polygon(p.exterior).area for p in getattr(rz[0], "geoms", [rz[0]])))[0]
+    full = shapely.union_all([Polygon(p.exterior) for p in getattr(region, "geoms", [region])])
+    hs = np.unique(np.concatenate([np.linspace(0.1, 3.0, 14), np.linspace(3.0, min(height - 0.1, 25.0), 22)]))
+    fillets = []
+    for selection, level_of in (("base_start_outline", lambda h: h), ("base_end_outline", lambda h: height - h)):
+        radius = _fit_fillet_radius(hs, _inset_profile(m, n, level_of, full, hs), min(height, 25.0))
+        if radius:
+            fillets.append({"type": "fillet", "name": "Edge fillet", "selection": selection, "radius": radius})
+    if not fillets:
+        return None
+    _, A, B = sp.PLANE_AXES[base["plane"]]
+    bounds = {0: [0.0, ext[A]], 1: [0.0, ext[B]]}
+    # the fillet rolls over the whole cap, so the holes that lie in its band come after it, as a separate cut
+    new_base = dict(base, sketch=compact(region_shapes(full, tol, bounds)))
+    hole_rings = [Polygon(ring) for p in getattr(region, "geoms", [region]) for ring in p.interiors]
+    through = []
+    if hole_rings:
+        through = [dict(base, name="Through holes", operation="cut", distance=sp.THROUGH_ALL,
+                        sketch=compact([s for ring in hole_rings if ring.area >= 1.0
+                                        for s in region_shapes(ring, tol, bounds)]))]
+    for i, f in enumerate(fillets):
+        f["name"] = "Edge fillet" if len(fillets) == 1 else "Edge fillet %d" % (i + 1)
+    protected = {name for f in spec["features"] if f["type"] == "mirror" for name in f["features"]}
+    trial = {"system": "model", "features": [new_base] + fillets + through + spec["features"][1:]}
+    before = _iou_points(spec, ext, pts, inside)
+    current = _iou_points(trial, ext, pts, inside)
+    if current < before - 0.01:
+        return None
+    for f in [g for g in trial["features"][1 + len(fillets):] if g["type"] == "extrusion"]:
+        if f.get("name") == "Through holes" and not through[0]["sketch"]:
+            continue
+        if f.get("name") in protected:
+            continue
+        k = trial["features"].index(f)
+        trial["features"].pop(k)
+        new = _iou_points(trial, ext, pts, inside)
+        if current - new < 0.002:
+            current = max(current, new)
+        else:
+            trial["features"].insert(k, f)
+    if current < before - 0.01:
+        return None
+    spec["features"] = trial["features"]
+    return {"radius": [f["radius"] for f in fillets], "selection": [f["selection"] for f in fillets],
+            "fit_iou": round(current, 4)}
+
+
 def _apply_mirror(spec, ext, pts, inside):
     """Replace mirrored duplicates by a mirror feature when that keeps the IoU. Return a note for the spec."""
     base_iou = _iou_points(spec, ext, pts, inside)
@@ -1216,6 +1331,7 @@ def _convert_mesh(m, tol, part):
         results.append((value - 0.006 * len(feats), spec, value, n_runs, pruned, merge))
     _, spec, value, _, pruned, merge = max(results, key=lambda r: r[0])
     gear_note = _apply_gear(m, spec, ext, pts2, inside2)
+    fillet_note = None if gear_note else _apply_edge_fillet(m, spec, ext, tol, pts2, inside2)
     raw_diameters = fits.raw_diameters(spec)
     rounding.round_spec(spec)
     symmetry.unique_names(spec["features"])
@@ -1225,7 +1341,7 @@ def _convert_mesh(m, tol, part):
                      "original_min": [round(float(v), 3) for v in m.metadata.get("original_min", [0, 0, 0])],
                      "extrusion_axis": AXIS_NAME[n], "tolerance_mm": tol, "pruned_features": pruned,
                      "merged_interruptions": merge, "raw_diameters": raw_diameters, "mirror": mirror_note,
-                     "gear": gear_note}
+                     "gear": gear_note, "fillet": fillet_note}
     return m, ext, spec, value
 
 
