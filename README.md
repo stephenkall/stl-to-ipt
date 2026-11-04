@@ -8,6 +8,12 @@ hand: a base profile on the natural plane, a few pads/recesses, through cuts on 
 edit to resize the part.
 
 - Sketches are lines, arcs and circles fitted to the mesh (tolerance 0.12 mm by default), not triangle soup.
+  Arcs that flow into lines or into each other get **tangent constraints**, so a fillet or a lobe keeps its
+  continuous curve when a dimension changes.
+- Dimensions are **clean numbers**: measurement noise such as 5.015 becomes 5, and nothing carries more than two
+  decimals (see [Dimension rounding](#dimension-rounding-and-fits)).
+- Round holes that are not visible in the silhouette (blind holes across the extrusion axis) become real Inventor
+  **Hole** features, and symmetric parts are built from one side plus a **Mirror** feature.
 - The extrusion axis is chosen so the part looks like a prism; the sketch goes on XY when possible and is
   extruded along Z.
 - Equal diameters share one parameter, rows of identical shapes are pattern copies driven by one `_pitch`
@@ -72,6 +78,25 @@ same command again to continue.
 
 The `examples/specs` folder holds the specs of twenty real parts, which `stl-to-ipt build` can turn into `.ipt`
 files without any STL. See [docs/spec-format.md](docs/spec-format.md) for the format.
+
+## Dimension rounding and fits
+
+A mesh yields values like 25.859 or 8.986, but the part was designed with a caliper in mind. Every dimension is
+snapped to the roundest number that is still within measurement noise: a multiple of 0.5 within 0.04 mm, else of
+0.1 within 0.025 mm, else of 0.05 within 0.012 mm, else rounded to two decimals. Coordinates and arc centers that
+agree within 0.06 mm become exactly equal.
+
+Parts that must fit together are protected. The STL files of one project share a design frame, so the converter
+finds **shaft/hole pairs** (coaxial, overlapping, hole at most 1.5 mm larger) and compares the clearance measured
+on the mesh with the clearance after rounding. A change above 0.05 mm, or a clearance that closes, is reported and
+repaired by resizing the hole. `stl-to-ipt run` does this automatically; run it by hand with:
+
+```powershell
+stl-to-ipt fits specs            # report only
+stl-to-ipt fits specs --apply    # repair and rewrite the specs
+```
+
+Parts that were rotated before slicing are skipped, because their frame no longer matches the assembly.
 
 ## Development
 

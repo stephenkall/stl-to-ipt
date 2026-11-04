@@ -29,9 +29,11 @@ K_JOIN = 20481
 K_CUT = 20482
 K_NEW_BODY = 20485
 K_MILLIMETER_UNITS = 11269
+K_COMPUTE_IDENTICAL = 47361  # PatternComputeTypeEnum.kIdenticalCompute (read from the Inventor type library)
 OPS = {"new": K_NEW_BODY, "join": K_JOIN, "cut": K_CUT}
 EXTENT_DIRECTIONS = {"positive": K_POSITIVE, "negative": K_NEGATIVE, "symmetric": K_SYMMETRIC}
 PLANE_INDEX = {"YZ": 1, "XZ": 2, "XY": 3}
+MAX_TANGENT_SEGMENTS = 40  # denser contours (gear teeth) keep plain vertex dimensions: tangents would be slow
 K_HORIZONTAL_DIM = 19201  # DimensionOrientationEnum.kHorizontalDim
 K_VERTICAL_DIM = 19202
 
@@ -81,11 +83,16 @@ class Context:
         self.comp = comp
         self.used = set()
         self.diameters = {}
+        self.radii = {}
         try:
             for p in comp.Parameters:
                 self.used.add(p.Name)
         except Exception:
             pass
+
+    def update(self):
+        """Recompute the document (sketch geometry follows parameter changes only after this)."""
+        self.comp.Document.Update()
 
     def unique(self, base):
         base = _slug(base)[:40]
@@ -112,13 +119,76 @@ def _text_point(tg, a, b, horizontal):
     return tg.CreatePoint2d(mx, my + 0.6) if horizontal else tg.CreatePoint2d(mx + 0.6, my)
 
 
-def _dimension(sk, tg, a, b, horizontal, ctx, name, expr=None):
+def _tidy(dim):
+    """Remove numeric dust from a driving dimension: 5.0009 mm becomes 5 mm (never more than 0.006 mm of change)."""
+    try:
+        par = dim.Parameter
+        mm = par.Value / MM
+        clean = round(mm, 2)
+        if 1e-9 < abs(clean - mm) < 0.006:
+            par.Value = clean * MM
+    except Exception:
+        pass
+
+
+PROBE_STEP = 0.002  # cm (0.02 mm): size of the perturbation used to detect redundant dimensions
+
+
+def _is_independent(dim, measure, update):
+    """True when the dimension really drives the geometry. A redundant dimension is silently accepted by Inventor
+    when tangent constraints are involved and later breaks the sketch, so it is tested by perturbation: the
+    measured quantity must follow a small change of the value, and return when the value is restored."""
+    par = dim.Parameter
+    value = par.Value
+    try:
+        par.Value = value + PROBE_STEP
+        update()  # the sketch geometry is only recomputed on a document update
+        follows = abs(measure() - (value + PROBE_STEP)) < 1e-4
+        par.Value = value
+        update()
+        return follows and abs(measure() - value) < 1e-4
+    except Exception:
+        try:
+            par.Value = value
+            update()
+        except Exception:
+            pass
+        return False
+
+
+def _dimension(sk, tg, a, b, horizontal, ctx, name, expr=None, check=False):
     d = sk.DimensionConstraints.AddTwoPointDistance(
         a, b, K_HORIZONTAL_DIM if horizontal else K_VERTICAL_DIM, _text_point(tg, a, b, horizontal))
+    if check:
+        def measure():
+            ga, gb = a.Geometry, b.Geometry
+            return abs(gb.X - ga.X) if horizontal else abs(gb.Y - ga.Y)
+        if not _is_independent(d, measure, ctx.update):
+            d.Delete()
+            raise RuntimeError("redundant dimension")
     if expr:
         d.Parameter.Expression = expr
         return expr
+    _tidy(d)
     return ctx.name_parameter(d, name)
+
+
+def _radius_dimension(sk, tg, arc, ctx, name, check=False):
+    """Radius dimension; arcs with the same radius share one parameter."""
+    g = arc.CenterSketchPoint.Geometry
+    dim = sk.DimensionConstraints.AddRadius(arc, tg.CreatePoint2d(g.X + 0.5, g.Y + 0.5))
+    if check and not _is_independent(dim, lambda: arc.Radius, ctx.update):
+        dim.Delete()
+        raise RuntimeError("redundant radius")
+    _tidy(dim)
+    r_mm = round(dim.Parameter.Value / MM, 2)
+    if r_mm in ctx.radii:
+        dim.Parameter.Expression = ctx.radii[r_mm]
+        return ctx.radii[r_mm]
+    nm = ctx.name_parameter(dim, name)
+    if nm:
+        ctx.radii[r_mm] = nm
+    return nm
 
 
 def _fix_position(sk, tg, origin, pt, ctx, prefix, tag):
@@ -153,6 +223,7 @@ def parametrize_circle(sk, tg, origin, ctx, c, prefix, tag, pattern, k):
         return
     _fix_position(sk, tg, origin, cp, ctx, prefix, tag)
     dim = sk.DimensionConstraints.AddDiameter(c, tg.CreatePoint2d(cp.Geometry.X + 0.8, cp.Geometry.Y + 0.8))
+    _tidy(dim)
     d_mm = round(c.Radius * 20.0, 2)
     if d_mm in ctx.diameters:  # same diameter -> same parameter
         dim.Parameter.Expression = ctx.diameters[d_mm]
@@ -200,8 +271,32 @@ def parametrize_rectangle(sk, tg, origin, ctx, lines, prefix, tag, pattern, k):
         pattern["w"], pattern["h"], pattern["last"] = w, h, ll
 
 
-def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag):
-    """H/V constraints + chained dimensions (every X and Y 'step' gets one) + arc radii."""
+def _try(fn, *args):
+    """Call an Inventor API function that may refuse because the sketch would become over-constrained."""
+    try:
+        return fn(*args)
+    except Exception:
+        return None
+
+
+def _attempt(fn, *args):
+    """Call an Inventor API function; True when it did not raise."""
+    try:
+        fn(*args)
+        return True
+    except Exception:
+        return False
+
+
+def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag, tangents=()):
+    """Constraints and dimensions that express the design intent of a contour:
+
+    * tangent junctions get a tangent constraint (a fillet stays a fillet when a dimension changes);
+    * horizontal/vertical lines get H/V constraints;
+    * dimensions: positions of ordinary corners (chained along X and Y), then arc radii. Points where
+      segments flow tangentially into each other get no dimension of their own: tangency plus the radii already
+      determine them, and an extra dimension there would over-constrain (and break) the sketch.
+    """
     verts = {}
     pts = []
 
@@ -215,6 +310,21 @@ def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag):
     edges = []
     for e, kind in ents:
         edges.append((vertex_id(e.StartSketchPoint), vertex_id(e.EndSketchPoint), e, kind))
+    n_edges = len(edges)
+
+    check = bool(tangents)  # redundancy only matters (and is only hidden) when tangent constraints are present
+    tangent_vertices = set()
+    for i in tangents:
+        e1, e2 = edges[i][2], edges[(i + 1) % n_edges][2]
+        # the junction is the vertex the two edges share (Inventor swaps start and end of clockwise arcs)
+        shared = set(edges[i][:2]) & set(edges[(i + 1) % n_edges][:2])
+        if not shared:
+            continue
+        tangent_vertices.update(shared)
+        g = pts[next(iter(shared))].Geometry
+        if _try(sk.GeometricConstraints.AddTangent, e1, e2, tg.CreatePoint2d(g.X, g.Y)) is None:
+            _try(sk.GeometricConstraints.AddTangent, e1, e2)
+
     ux, uy = list(range(len(pts))), list(range(len(pts)))
 
     def root(u, i):
@@ -228,35 +338,113 @@ def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag):
             continue
         ga, gb = pts[a].Geometry, pts[b].Geometry
         if abs(ga.X - gb.X) < 1e-7 and abs(ga.Y - gb.Y) > 1e-7:
-            sk.GeometricConstraints.AddVertical(e)
+            _try(sk.GeometricConstraints.AddVertical, e)
             ux[root(ux, a)] = root(ux, b)
         elif abs(ga.Y - gb.Y) < 1e-7 and abs(ga.X - gb.X) > 1e-7:
-            sk.GeometricConstraints.AddHorizontal(e)
+            _try(sk.GeometricConstraints.AddHorizontal, e)
             uy[root(uy, a)] = root(uy, b)
+
+    anchored = {True: False, False: False}  # is the contour positioned against the origin along X / Y?
+    free_reps = {True: [], False: []}       # tangent-only classes: candidates to anchor a floating contour
     for u, horizontal in ((ux, True), (uy, False)):
-        reps = {}
+        classes = {}
         for i in range(len(pts)):
-            reps.setdefault(root(u, i), i)
-        order = sorted(reps.values(), key=lambda i: (pts[i].Geometry.X if horizontal else pts[i].Geometry.Y))
-        prev = None
-        for n_, i in enumerate(order, 1):
+            classes.setdefault(root(u, i), []).append(i)
+        reps = []
+        for members in classes.values():
+            ordinary = [i for i in members if i not in tangent_vertices]
+            if ordinary:
+                reps.append(ordinary[0])
+            else:  # a class made only of tangent points is determined by the tangencies...
+                free_reps[horizontal].append(members[0])  # ...unless nothing ties the contour to the origin
+        key = (lambda i: pts[i].Geometry.X) if horizontal else (lambda i: pts[i].Geometry.Y)
+        reps.sort(key=key)
+        free_reps[horizontal].sort(key=key)
+        anchor = None
+        for n_, i in enumerate(reps, 1):
             label = "%s_%s%s%d" % (prefix, "H" if horizontal else "V", tag, n_)
-            if prev is None:
-                g = pts[i].Geometry
+            g = pts[i].Geometry
+            if anchor is None:
                 if abs(g.X if horizontal else g.Y) < 1e-7:
                     align = (sk.GeometricConstraints.AddVerticalAlign if horizontal
                              else sk.GeometricConstraints.AddHorizontalAlign)
-                    align(origin, pts[i])
+                    anchored[horizontal] = _attempt(align, origin, pts[i]) or anchored[horizontal]
                 else:
-                    _dimension(sk, tg, origin, pts[i], horizontal, ctx, label)
+                    anchored[horizontal] = _attempt(_dimension, sk, tg, origin, pts[i], horizontal, ctx, label,
+                                                    None, check) or anchored[horizontal]
             else:
-                _dimension(sk, tg, pts[prev], pts[i], horizontal, ctx, label)
-            prev = i
+                _try(_dimension, sk, tg, pts[anchor], pts[i], horizontal, ctx, label, None, check)
+            anchor = i
     for a, b, e, kind in edges:
         if kind == "A":
-            g = e.CenterSketchPoint.Geometry
-            ctx.name_parameter(sk.DimensionConstraints.AddRadius(e, tg.CreatePoint2d(g.X + 0.5, g.Y + 0.5)),
-                               "%s_R%s" % (prefix, tag))
+            _try(_radius_dimension, sk, tg, e, ctx, "%s_R%s" % (prefix, tag), check)
+    # a contour made only of tangent points would float: tie it to the origin with one dimension per direction
+    for horizontal in (True, False):
+        if anchored[horizontal]:
+            continue
+        for n_, i in enumerate(free_reps[horizontal], 1):
+            g = pts[i].Geometry
+            if abs(g.X if horizontal else g.Y) < 1e-7:
+                align = (sk.GeometricConstraints.AddVerticalAlign if horizontal
+                         else sk.GeometricConstraints.AddHorizontalAlign)
+                done = _attempt(align, origin, pts[i])
+            else:
+                label = "%s_%s%s_pos" % (prefix, "H" if horizontal else "V", tag)
+                done = _attempt(_dimension, sk, tg, origin, pts[i], horizontal, ctx, label, None, True)
+            if done:
+                break
+
+
+def _segment_directions(contour):
+    """For every segment of a contour: (start direction, end direction) as unit vectors, following the travel."""
+    pts = [tuple(contour["start"])] + [(sg[-2], sg[-1]) for sg in contour["segments"]]
+    out = []
+    for i, sg in enumerate(contour["segments"]):
+        p0, p1 = pts[i], pts[i + 1]
+        if sg[0] == "L":
+            d = (p1[0] - p0[0], p1[1] - p0[1])
+            n = math.hypot(*d) or 1.0
+            u = (d[0] / n, d[1] / n)
+            out.append((u, u))
+            continue
+        pm = (sg[1], sg[2])
+        ax, ay = p0
+        bx, by = pm
+        cx, cy = p1
+        det = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+        if abs(det) < 1e-12:
+            d = (p1[0] - p0[0], p1[1] - p0[1])
+            n = math.hypot(*d) or 1.0
+            u = (d[0] / n, d[1] / n)
+            out.append((u, u))
+            continue
+        a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
+        ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / det
+        uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / det
+        ccw = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) > 0
+
+        def tangent_at(p):
+            rx, ry = p[0] - ux, p[1] - uy
+            n = math.hypot(rx, ry) or 1.0
+            t = (-ry / n, rx / n)
+            return t if ccw else (-t[0], -t[1])
+
+        out.append((tangent_at(p0), tangent_at(p1)))
+    return out
+
+
+def tangent_junctions(contour, max_angle_deg=4.0):
+    """Indices ``i`` such that segment ``i`` flows tangentially into segment ``(i + 1) % n``."""
+    dirs = _segment_directions(contour)
+    n = len(dirs)
+    limit = math.cos(math.radians(max_angle_deg))
+    found = []
+    for i in range(n):
+        a = dirs[i][1]
+        b = dirs[(i + 1) % n][0]
+        if a[0] * b[0] + a[1] * b[1] >= limit:
+            found.append(i)
+    return found
 
 
 # ----------------------------------------------------------------------------- drawing
@@ -341,29 +529,30 @@ def repair_line_contour(s):
     return result or None
 
 
-def draw_shape(sk, P, s, arcs=True):
-    """Draw a shape. Return items for parametrization: ('circle', c) | ('rect', lines) | ('contour', ents)."""
+def draw_shape(sk, P, s, arcs=True, tangents=True):
+    """Draw a shape. Return items for parametrization: ('circle', c, None) | ('rect', lines, None) | ('contour', ents, tangents)."""
     shape = s["shape"]
     if shape == "rectangle":
         x, y, w, h = s["x"], s["y"], s["width"], s["height"]
         if s.get("centered"):
             x, y = x - w / 2.0, y - h / 2.0
         r = sk.SketchLines.AddAsTwoPointRectangle(P(x, y), P(x + w, y + h))
-        return [("rect", [r.Item(i) for i in range(1, 5)])]
+        return [("rect", [r.Item(i) for i in range(1, 5)], None)]
     if shape == "circle":
-        return [("circle", sk.SketchCircles.AddByCenterRadius(P(s["x"], s["y"]), s["d"] * MM / 2.0))]
+        return [("circle", sk.SketchCircles.AddByCenterRadius(P(s["x"], s["y"]), s["d"] * MM / 2.0), None)]
     if shape == "polygon":
-        return [("contour", [(line, "L") for line in draw_polygon(sk, P, s["points"])])]
+        return [("contour", [(line, "L") for line in draw_polygon(sk, P, s["points"])], ())]
     if shape == "contour":
         repaired = repair_line_contour(s)
         if repaired is not None:
-            return [("contour", [(line, "L") for line in draw_polygon(sk, P, pts)]) for pts in repaired]
+            return [("contour", [(line, "L") for line in draw_polygon(sk, P, pts)], ()) for pts in repaired]
         if arcs:
-            return [("contour", draw_contour(sk, P, s))]
+            use_tangents = tangents and len(s["segments"]) <= MAX_TANGENT_SEGMENTS
+            return [("contour", draw_contour(sk, P, s), tangent_junctions(s) if use_tangents else ())]
         pts = sp.contour_points(s, 16)  # fallback: arcs approximated by line segments
         if math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-6:
             pts = pts[:-1]
-        return [("contour", [(line, "L") for line in draw_polygon(sk, P, pts)])]
+        return [("contour", [(line, "L") for line in draw_polygon(sk, P, pts)], ())]
     if shape == "slot":
         a1, a2, m2, b2, b1, m1 = sp.slot_points(s)
         l1 = sk.SketchLines.AddByTwoPoints(P(*a1), P(*a2))
@@ -373,12 +562,12 @@ def draw_shape(sk, P, s, arcs=True):
     return []
 
 
-def draw_sketch(sk, tg, P, sketch, arcs, ctx, prefix):
+def draw_sketch(sk, tg, P, sketch, arcs, ctx, prefix, tangents=True):
     """Draw all shapes and (when ``ctx`` is given) add the parametric constraints and dimensions."""
     origin = sk.AddByProjectingEntity(ctx.comp.WorkPoints.Item(1)) if ctx is not None else None
     items = []  # (item, shape dict)
     for s in sp.sketch_shapes(sketch):
-        for it in draw_shape(sk, P, s, arcs):
+        for it in draw_shape(sk, P, s, arcs, tangents):
             items.append((it, s))
     if ctx is None:
         return
@@ -387,7 +576,7 @@ def draw_sketch(sk, tg, P, sketch, arcs, ctx, prefix):
         if abs(g0.X) > 1e-7 or abs(g0.Y) > 1e-7:
             raise RuntimeError("sketch origin is not at (0, 0)")
         patterns = {}
-        for i, ((kind, obj), s) in enumerate(items, 1):
+        for i, ((kind, obj, extra), s) in enumerate(items, 1):
             tag = str(i)
             pid, k = s.get("_pattern", (None, 0))
             pattern = None
@@ -398,7 +587,7 @@ def draw_sketch(sk, tg, P, sketch, arcs, ctx, prefix):
             elif kind == "rect":
                 parametrize_rectangle(sk, tg, origin, ctx, obj, prefix, tag, pattern, k)
             else:
-                parametrize_contour(sk, tg, origin, ctx, obj, prefix, tag)
+                parametrize_contour(sk, tg, origin, ctx, obj, prefix, tag, extra or ())
     except Exception as e:
         print("  warning: sketch '%s' is not fully parametrized: %s" % (prefix, e))
 
@@ -445,37 +634,24 @@ def offset_plane(comp, tg, plane, offset, ctx, prefix):
     return wp
 
 
-def add_extrusion(comp, tg, f, ctx=None):
-    plane = f["plane"]
-    n, A, B = sp.PLANE_AXES[plane]
-    name = f.get("name", "Feature")
-    prefix = _slug(name)[:24]
-    wp = offset_plane(comp, tg, plane, f.get("offset", 0), ctx, prefix)
+SKETCH_SCHEMES = ((True, True), (True, False), (False, False))  # (arcs, tangent constraints)
 
-    sk = basis = prof = None
-    for arcs in (True, False):
-        sk = comp.Sketches.Add(wp)
-        basis = sketch_basis(sk, tg)
-        P = make_mapper(tg, basis, A, B)
-        set_name(sk, "Sketch - " + name)
-        draw_sketch(sk, tg, P, f["sketch"], arcs, ctx, prefix)
-        try:
-            prof = sk.Profiles.AddForSolid()
-            break
-        except Exception as e:
-            sk.Delete()
-            if not arcs:
-                raise RuntimeError("Could not create the profile of sketch '%s': %s" % (name, e))
-            print("  warning: profile with arcs failed in '%s'; redrawing with line segments" % name)
 
-    op = OPS[f.get("operation", "new")]
-    sketch_sign = 1 if cross(basis[1], basis[2])[n] > 0 else -1
-    directions = [K_POSITIVE, K_NEGATIVE] if f.get("direction", 1) * sketch_sign > 0 else [K_NEGATIVE, K_POSITIVE]
+def _profile_matches(prof, f):
+    """True when the profile has the area the spec says (a sketch that the solver deformed would not)."""
+    try:
+        area_mm2 = prof.RegionProperties.Area / (MM * MM)
+    except Exception:
+        return True  # cannot be checked
+    expected = sp.sketch_geometry(f["sketch"]).area
+    return abs(area_mm2 - expected) <= max(0.02 * expected, 2.0)
 
+
+def _extrude(comp, prof, f, op, directions, name):
+    """Extrude in the preferred direction, falling back to the opposite one. Return the feature or None."""
     ext = comp.Features.ExtrudeFeatures
     before = part_volume(comp)
     feat = None
-    last_error = None
     for attempt, direction in enumerate(directions):
         try:
             if f["distance"] == sp.THROUGH_ALL:
@@ -485,28 +661,70 @@ def add_extrusion(comp, tg, f, ctx=None):
             else:
                 feat = ext.AddByDistanceExtent(prof, f["distance"] * MM, direction, op)
         except Exception as e:
-            last_error = e
             feat = None
             if attempt == 0:
                 print("  warning: extrusion failed in '%s' (%s); trying the opposite direction" % (name, e))
             continue
         after = part_volume(comp)
         if before is None or after is None or abs(after - before) > 1e-9:
-            break  # the volume changed: correct direction (or it cannot be checked)
+            return feat  # the volume changed: correct direction (or it cannot be checked)
         if attempt == 0:  # nothing changed: try the opposite direction
             try:
                 feat.Delete()
             except Exception:
-                break
+                return feat
+            feat = None
             print("  warning: reversed direction in '%s', trying the opposite" % name)
+    return feat
+
+
+def add_extrusion(comp, tg, f, ctx=None):
+    plane = f["plane"]
+    n, A, B = sp.PLANE_AXES[plane]
+    name = f.get("name", "Feature")
+    prefix = _slug(name)[:24]
+    wp = offset_plane(comp, tg, plane, f.get("offset", 0), ctx, prefix)
+    op = OPS[f.get("operation", "new")]
+
+    feat = None
+    for arcs, tangents in SKETCH_SCHEMES:
+        saved = (set(ctx.used), dict(ctx.diameters), dict(ctx.radii)) if ctx is not None else None
+        sk = comp.Sketches.Add(wp)
+        basis = sketch_basis(sk, tg)
+        P = make_mapper(tg, basis, A, B)
+        set_name(sk, "Sketch - " + name)
+        draw_sketch(sk, tg, P, f["sketch"], arcs, ctx, prefix, tangents)
+        reason = None
+        try:
+            prof = sk.Profiles.AddForSolid()
+        except Exception as e:
+            prof, reason = None, "no closed profile (%s)" % e
+        if prof is not None and not _profile_matches(prof, f):
+            reason = "the sketch no longer matches the spec"
+        if reason is None:
+            sketch_sign = 1 if cross(basis[1], basis[2])[n] > 0 else -1
+            directions = ([K_POSITIVE, K_NEGATIVE] if f.get("direction", 1) * sketch_sign > 0
+                          else [K_NEGATIVE, K_POSITIVE])
+            feat = _extrude(comp, prof, f, op, directions, name)
+            if feat is not None:
+                break
+            reason = "extrusion failed"
+        try:
+            sk.Delete()
+        except Exception:
+            pass
+        if ctx is not None:  # forget the parameter names of the discarded sketch
+            ctx.used, ctx.diameters, ctx.radii = saved
+        print("  warning: %s in '%s' (arcs=%s, tangents=%s); trying a simpler sketch" % (reason, name, arcs, tangents))
     if feat is None:
-        raise RuntimeError("Extrusion '%s' failed in both directions: %s" % (name, last_error))
+        raise RuntimeError("Extrusion '%s' failed with every sketch scheme" % name)
     set_name(feat, name)
     if ctx is not None and f["distance"] != sp.THROUGH_ALL:
         try:
             ctx.name_parameter(feat.Definition.Extent.Distance, prefix + "_depth")
         except Exception:
             pass
+    return feat
 
 
 def add_hole(app, comp, tg, f, ctx=None):
@@ -584,6 +802,20 @@ def add_hole(app, comp, tg, f, ctx=None):
             ctx.name_parameter(feat.Definition.Extent.Distance, prefix + "_depth")
         except Exception:
             pass
+    return feat
+
+
+def add_mirror(app, comp, tg, f, ctx, built):
+    """Mirror feature: mirrors the listed features (already built, looked up by name) about a plane."""
+    name = f.get("name", "Mirror")
+    prefix = _slug(name)[:24]
+    wp = offset_plane(comp, tg, f["plane"], f.get("offset", 0), ctx, prefix)
+    col = app.TransientObjects.CreateObjectCollection()
+    for feature_name in f["features"]:
+        col.Add(built[feature_name])
+    feat = comp.Features.MirrorFeatures.Add(col, wp, False, K_COMPUTE_IDENTICAL)
+    set_name(feat, name)
+    return feat
 
 
 def add_legacy_extrusion(comp, tg, f):
@@ -698,15 +930,18 @@ def create_ipt(spec, output, app=None, close=False):
 
     model = spec.get("system") == "model"
     ctx = Context(comp) if model else None
+    built = {}  # feature name -> Inventor feature (mirror features refer to them)
     for i, f in enumerate(spec["features"], 1):
         print("Feature %d: %s %s" % (i, f["type"], f.get("name", "")))
         if f["type"] == "extrusion":
             if model:
-                add_extrusion(comp, tg, f, ctx)
+                built[f.get("name")] = add_extrusion(comp, tg, f, ctx)
             else:
                 add_legacy_extrusion(comp, tg, f)
         elif f["type"] == "hole":
-            add_hole(app, comp, tg, f, ctx)
+            built[f.get("name")] = add_hole(app, comp, tg, f, ctx)
+        elif f["type"] == "mirror":
+            add_mirror(app, comp, tg, f, ctx, built)
         elif f["type"] == "revolve":
             add_revolve(comp, tg, f)
         elif f["type"] in ("fillet", "chamfer"):

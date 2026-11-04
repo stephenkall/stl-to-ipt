@@ -27,7 +27,7 @@ def _draw(ax, g, color):
 
 
 def render(spec_path, out_png):
-    spec = sp.load(spec_path)
+    spec = sp.expand_mirrors(sp.load(spec_path))
     model = spec.get("system") == "model"
     feats = [f for f in spec["features"] if f["type"] == "extrusion"]
     revolves = [f for f in spec["features"] if f["type"] == "revolve"]

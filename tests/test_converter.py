@@ -101,3 +101,81 @@ def test_rectangles_are_recognized_and_rows_become_patterns():
     assert len(out) == 1
     assert out[0]["shape"] == "rectangle"
     assert out[0]["pattern"] == {"type": "linear", "nx": 3, "ny": 1, "dx": 5.0, "dy": 0}
+
+
+def _plate_with_hole(has_hole):
+    plate = box(0, 0, 40, 40)
+    return plate.difference(Point(20, 20).buffer(1.5, 32)) if has_hole else plate
+
+
+def test_blind_hole_across_the_extrusion_axis_is_found():
+    step = 0.5
+    pos = [step * (i + 0.5) for i in range(12)]
+    # hole open at the low end (slices 0-5), solid bottom afterwards (slices 6-11)
+    regs = [_plate_with_hole(i < 6) for i in range(12)]
+    holes = cv._blind_holes_from_slices(pos, regs, step, box(0, 0, 40, 40), np.array([0.0, 3.0, 6.0]),
+                                        lambda center, r, high: 0.0 if not high else 6.0)
+    assert len(holes) == 1
+    h = holes[0]
+    assert h["subtype"] == "simple" and h["direction"] == 1
+    assert h["d"] == pytest.approx(3.0, abs=0.1)
+    assert h["face"] == pytest.approx(0.0) and h["depth"] == pytest.approx(3.0, abs=0.01)
+
+
+def test_through_hole_is_not_reported_as_blind():
+    step = 0.5
+    pos = [step * (i + 0.5) for i in range(12)]
+    regs = [_plate_with_hole(True) for _ in range(12)]
+    # the hole is a void in the silhouette, so the silhouette cut handles it
+    silhouette = box(0, 0, 40, 40).difference(Point(20, 20).buffer(1.5, 32))
+    assert cv._blind_holes_from_slices(pos, regs, step, silhouette, np.array([0.0, 6.0]),
+                                       lambda c, r, h: 0.0) == []
+
+
+def test_hole_closed_on_both_ends_is_ignored():
+    step = 0.5
+    pos = [step * (i + 0.5) for i in range(12)]
+    regs = [_plate_with_hole(3 <= i < 8) for i in range(12)]  # internal cavity
+    assert cv._blind_holes_from_slices(pos, regs, step, box(0, 0, 40, 40), np.array([0.0, 6.0]),
+                                       lambda c, r, h: 0.0) == []
+
+
+def test_hole_features_group_identical_holes():
+    holes = [dict(x=1, y=2, d=3.0, face=5.0, direction=-1, depth=4.0, subtype="simple", idx=(0, 3)),
+             dict(x=9, y=2, d=3.0, face=5.0, direction=-1, depth=4.0, subtype="simple", idx=(0, 3))]
+    feats = cv.hole_features(holes, "XZ")
+    assert len(feats) == 1
+    assert feats[0]["points"] == [[1, 2], [9, 2]] and feats[0]["name"] == "Blind hole"
+    assert sp.validate({"system": "model", "features": [
+        {"type": "extrusion", "plane": "XY", "operation": "new", "distance": 5,
+         "sketch": [{"shape": "rectangle", "x": 0, "y": 0, "width": 20, "height": 20}]}] + feats})[0] == []
+
+
+def test_regularize_aligns_noisy_tangent_points_with_circle_centers():
+    # a bar whose left end is a semicircle of radius 5 centered at (5, 5), measured with noise
+    p0 = (4.993, -0.004)
+    segs = [("L", 30.0, 0.0), ("L", 30.0, 10.0), ("L", 5.044, 10.0), ("A", 0.002, 5.001, 4.993, -0.004)]
+    start, out = cv._regularize(p0, segs)
+    assert tuple(start) == (5.0, 0.0)
+    assert out[2][1:3] == (5.0, 10.0)                  # 5.044 collapsed onto the circle center's x
+    assert out[3][3:5] == (5.0, 0.0)
+    arc = out[3]
+    # the recomputed mid point lies on the clean circle (center (5, 5), radius 5)
+    assert math.hypot(arc[1] - 5.0, arc[2] - 5.0) == pytest.approx(5.0, abs=1e-6)
+    assert arc[1] < 1.0  # on the far (left) side of the semicircle
+
+
+def test_tangent_junctions_detects_line_arc_and_arc_arc_continuity():
+    from stl_to_ipt import inventor as inv
+    # stadium: two lines joined by two semicircles, every junction is tangent
+    c = {"shape": "contour", "start": [5, 0],
+         "segments": [["L", 20, 0], ["A", 25, 5, 20, 10], ["L", 5, 10], ["A", 0, 5, 5, 0]]}
+    assert inv.tangent_junctions(c) == [0, 1, 2, 3]
+    # a corner is not tangent
+    sq = {"shape": "contour", "start": [0, 0],
+          "segments": [["L", 10, 0], ["L", 10, 10], ["L", 0, 10], ["L", 0, 0]]}
+    assert inv.tangent_junctions(sq) == []
+    # a line meeting an arc at an angle is not tangent
+    bent = {"shape": "contour", "start": [0, 0],
+            "segments": [["L", 10, 0], ["A", 12, 4, 10, 8], ["L", 0, 8], ["L", 0, 0]]}
+    assert 1 not in inv.tangent_junctions(bent)  # the arc meets the line at (10, 8) at an angle

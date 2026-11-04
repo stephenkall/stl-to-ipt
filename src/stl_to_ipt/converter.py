@@ -20,7 +20,9 @@ import numpy as np
 import shapely
 from shapely.geometry import Polygon, box
 
+from . import fits, rounding
 from . import spec as sp
+from . import symmetry
 
 warnings.filterwarnings("ignore")
 PLANE_NAME = {2: "XY", 1: "XZ", 0: "YZ"}
@@ -33,6 +35,7 @@ def load_mesh(path):
     import trimesh
     m = trimesh.load(path, force="mesh")
     m.merge_vertices()
+    m.metadata["original_min"] = [float(v) for v in m.bounds[0]]
     m.apply_translation(-m.bounds[0])
     return m
 
@@ -148,32 +151,109 @@ def _circle3(a, m, b):
     return ux, uy, math.hypot(ax - ux, ay - uy)
 
 
+def _arc_mid(center, r, p0, p1, ccw):
+    """Point halfway along the arc of circle (center, r) that goes from p0 to p1."""
+    a0 = math.atan2(p0[1] - center[1], p0[0] - center[0])
+    a1 = math.atan2(p1[1] - center[1], p1[0] - center[0])
+    tau = 2 * math.pi
+    sweep = (a1 - a0) % tau if ccw else -((a0 - a1) % tau)
+    am = a0 + sweep / 2.0
+    return center[0] + r * math.cos(am), center[1] + r * math.sin(am)
+
+
+def _is_ccw(p0, pm, p1):
+    return (pm[0] - p0[0]) * (p1[1] - p0[1]) - (pm[1] - p0[1]) * (p1[0] - p0[0]) > 0
+
+
+def _same_circle(c1, c2, tol):
+    """Same circle within ``tol`` mm, but never looser than 5% of the radius (tiny arcs must stay tiny)."""
+    if not (c1 and c2):
+        return False
+    tol = min(tol, 0.05 * min(c1[2], c2[2]))
+    return math.hypot(c1[0] - c2[0], c1[1] - c2[1]) < tol and abs(c1[2] - c2[2]) < tol
+
+
 def _merge_arcs_and_tangents(p0, segs, tol=0.2, short=6.0):
-    """(1) Consecutive arcs on the same circle become one arc.
-    (2) A short faceting line between a long line and an arc tangent to it disappears (the arc then starts
-    at the tangent point)."""
+    """Clean up a fitted contour (a closed list of ``("L", x, y)`` / ``("A", mx, my, x, y)``):
+
+    (1) consecutive arcs on the same circle become one arc, also across the start vertex;
+    (2) a short faceting line between a long line and an arc tangent to it disappears (the arc then starts
+        at the tangent point);
+    (3) two arcs on tangent circles that are separated by a few short pieces (tessellation debris around the
+        inflection point of an S-curve) are joined directly at the tangent point.
+    """
     pts = [np.array(p0, float)] + [np.array(sg[-2:], float) for sg in segs]
     segs = [list(sg) for sg in segs]
+
+    def circle_of(k):
+        return _circle3(pts[k], segs[k][1:3], pts[k + 1])
+
     changed = True
     while changed:
         changed = False
         n = len(segs)
+        # (1a) wrap-around: last and first arc on the same circle -> rotate the start vertex
+        if n >= 3 and segs[-1][0] == "A" and segs[0][0] == "A" and _same_circle(circle_of(n - 1), circle_of(0), tol):
+            mid = sp.sample_arc(tuple(pts[n - 1]), tuple(pts[0]), tuple(pts[1]), 2)[1]
+            merged = ["A", mid[0], mid[1], pts[1][0], pts[1][1]]
+            pts = [pts[n - 1]] + pts[1:n]
+            segs = [merged] + segs[1:n - 1]
+            changed = True
+            continue
+        # (1b) consecutive arcs on the same circle
         for i in range(n - 1):
-            if segs[i][0] == "A" and segs[i + 1][0] == "A":
-                c1 = _circle3(pts[i], segs[i][1:3], pts[i + 1])
-                c2 = _circle3(pts[i + 1], segs[i + 1][1:3], pts[i + 2])
-                if c1 and c2 and math.hypot(c1[0] - c2[0], c1[1] - c2[1]) < tol and abs(c1[2] - c2[2]) < tol:
-                    mid = sp.sample_arc(tuple(pts[i]), tuple(pts[i + 1]), tuple(pts[i + 2]), 2)[1]
-                    segs[i] = ["A", mid[0], mid[1], pts[i + 2][0], pts[i + 2][1]]
-                    del segs[i + 1]
-                    del pts[i + 1]
-                    changed = True
-                    break
+            if segs[i][0] == "A" and segs[i + 1][0] == "A" and _same_circle(circle_of(i), circle_of(i + 1), tol):
+                mid = sp.sample_arc(tuple(pts[i]), tuple(pts[i + 1]), tuple(pts[i + 2]), 2)[1]
+                segs[i] = ["A", mid[0], mid[1], pts[i + 2][0], pts[i + 2][1]]
+                del segs[i + 1]
+                del pts[i + 1]
+                changed = True
+                break
         if changed:
             continue
+        # (3) bridge two tangent circles across a few short pieces
+        for i in range(n):
+            if segs[i][0] != "A":
+                continue
+            for j in range(i + 1, min(n, i + 4)):
+                if segs[j][0] != "A":
+                    continue
+                gap = sum(float(np.hypot(*(pts[k + 1] - pts[k]))) for k in range(i + 1, j))
+                if gap > short or j == i + 1:
+                    continue
+                c1, c2 = circle_of(i), circle_of(j)
+                if not c1 or not c2:
+                    continue
+                d = math.hypot(c1[0] - c2[0], c1[1] - c2[1])
+                tol_t = min(0.4, 0.1 * min(c1[2], c2[2]))  # relative: small arcs need a tight match
+                if abs(d - (c1[2] + c2[2])) < tol_t:  # external tangency (S-curve)
+                    t = np.array([c1[0] + (c2[0] - c1[0]) * c1[2] / (c1[2] + c2[2]),
+                                  c1[1] + (c2[1] - c1[1]) * c1[2] / (c1[2] + c2[2])])
+                elif abs(c1[2] - c2[2]) > 0.3 and abs(d - abs(c1[2] - c2[2])) < tol_t:  # internal tangency
+                    big, small = (c1, c2) if c1[2] > c2[2] else (c2, c1)
+                    u = np.array([small[0] - big[0], small[1] - big[1]])
+                    t = np.array([big[0], big[1]]) + u / max(np.hypot(*u), 1e-9) * big[2]
+                else:
+                    continue
+                ccw_i = _is_ccw(pts[i], segs[i][1:3], pts[i + 1])
+                ccw_j = _is_ccw(pts[j], segs[j][1:3], pts[j + 1])
+                end_j = pts[j + 1]
+                mi = _arc_mid(c1[:2], c1[2], pts[i], t, ccw_i)
+                mj = _arc_mid(c2[:2], c2[2], t, end_j, ccw_j)
+                segs[i] = ["A", mi[0], mi[1], t[0], t[1]]
+                segs[j] = ["A", mj[0], mj[1], end_j[0], end_j[1]]
+                pts[i + 1] = t
+                del segs[i + 1:j]
+                del pts[i + 2:j + 1]
+                changed = True
+                break
+            if changed:
+                break
+        if changed:
+            continue
+        # (2) short faceting line between a long line and a tangent arc
         n = len(segs)
         for i in range(1, n - 1):
-            # [long L][short L][A]  or  [A][short L][long L]
             if segs[i][0] != "L" or np.hypot(*(pts[i + 1] - pts[i])) > short:
                 continue
             for line_i, arc_i in ((i - 1, i + 1), (i + 1, i - 1)):
@@ -199,12 +279,45 @@ def _merge_arcs_and_tangents(p0, segs, tol=0.2, short=6.0):
                 break
             if changed:
                 break
+    _slide_to_tangent_points(pts, segs, tol)
     out = []
     for k, sg in enumerate(segs):
         e = pts[k + 1]
         out.append(("L", float(e[0]), float(e[1])) if sg[0] == "L"
                    else ("A", float(sg[1]), float(sg[2]), float(e[0]), float(e[1])))
     return pts[0], out
+
+
+def _slide_to_tangent_points(pts, segs, tol, max_slide=3.0):
+    """A line and an arc whose circle touches the line meet exactly at the tangent point. Fitting often ends the
+    arc a vertex or two early; slide the junction along the line to the true tangent point."""
+    n = len(segs)
+    for k in range(n):
+        k2 = (k + 1) % n  # the last segment also meets the first one (the start vertex)
+        kinds = (segs[k][0], segs[k2][0])
+        if kinds not in (("L", "A"), ("A", "L")):
+            continue
+        li, ai = (k, k2) if kinds == ("L", "A") else (k2, k)
+        a, b = pts[li], pts[li + 1]
+        length = float(np.hypot(*(b - a)))
+        c = _circle3(pts[ai], segs[ai][1:3], pts[ai + 1])
+        if not c or length < 1e-6:
+            continue
+        center = np.array(c[:2])
+        if abs(float(_line_distance(center[None, :], a, b)[0]) - c[2]) > tol:
+            continue
+        u = (b - a) / length
+        t = a + u * float(np.dot(center - a, u))
+        junction = pts[k + 1]
+        slide = float(np.hypot(*(t - junction)))
+        if slide < 0.02 or slide > max_slide or slide > 0.5 * length:
+            continue
+        ccw = _is_ccw(pts[ai], segs[ai][1:3], pts[ai + 1])
+        pts[k + 1] = t
+        if k + 1 == n:  # junction on the start vertex: keep the closing point in sync
+            pts[0] = t
+        mid = _arc_mid(c[:2], c[2], pts[ai], pts[ai + 1], ccw)
+        segs[ai][1], segs[ai][2] = mid
 
 
 def ring_to_shape(coords, tol, bounds):
@@ -234,10 +347,87 @@ def ring_to_shape(coords, tol, bounds):
         nxt = corners[(j + 1) % len(corners)]
         idx = [(c + k) % n for k in range(((nxt - c) % n or n) + 1)]
         fit_run(P[idx], tol, segs)
-    p0, segs = _merge_arcs_and_tangents(P[first], segs)
-    p0, segs = _align(P[first], segs, bounds)
+    p0, segs = _guarded(_merge_arcs_and_tangents, P[first], segs)
+    p0, segs = _align(p0, segs, bounds)
+    p0, segs = _regularize_if_faithful(p0, segs)
     return {"shape": "contour", "start": [round(float(p0[0]), 3), round(float(p0[1]), 3)],
             "segments": [[s[0]] + [round(float(v), 3) for v in s[1:]] for s in segs]}
+
+
+def _contour_polygon(p0, segs):
+    from shapely.geometry import Polygon
+    c = {"start": [float(p0[0]), float(p0[1])],
+         "segments": [[sg[0]] + [float(v) for v in sg[1:]] for sg in segs]}
+    pts = sp.contour_points(c, 96)  # fine sampling: coarse chords would look like a change of shape
+    poly = Polygon(pts)
+    return poly if poly.is_valid else poly.buffer(0)
+
+
+def _regularize_if_faithful(p0, segs, max_change=0.002):
+    """Regularize (clean numbers, aligned centers) unless that changes the contour area by more than
+    ``max_change`` (relative): dense contours with many tiny features, like gear teeth, must stay as fitted."""
+    return _guarded(_regularize, p0, segs, max_change=max_change)
+
+
+def _guarded(transform, p0, segs, max_change=0.002):
+    """Apply ``transform(p0, segs) -> (p0, segs)`` only if the contour keeps its shape (area change below
+    ``max_change`` of the area, or 0.3 mm2)."""
+    new_p0, new_segs = transform(p0, segs)
+    try:
+        before, after = _contour_polygon(p0, segs), _contour_polygon(new_p0, new_segs)
+        changed = before.symmetric_difference(after).area
+        if changed > max(max_change * before.area, 0.3):
+            return p0, segs
+    except Exception:
+        return p0, segs
+    return new_p0, new_segs
+
+
+def _regularize(p0, segs, cluster_tol=0.06):
+    """Make a fitted contour internally consistent and made of clean numbers.
+
+    Vertex coordinates and arc centers that agree within ``cluster_tol`` become exactly equal (so tangent points
+    line up with the centers they belong to), every coordinate is rounded with ``rounding.nice`` and every arc
+    radius too; arc mid points are recomputed on the rounded circle."""
+    n = len(segs)
+    pts = [np.array(p0, float)] + [np.array(sg[-2:], float) for sg in segs]
+    circles = {}
+    for k, sg in enumerate(segs):
+        if sg[0] == "A":
+            c = _circle3(pts[k], sg[1:3], pts[k + 1])
+            if c:
+                circles[k] = (c, _is_ccw(pts[k], sg[1:3], pts[k + 1]))
+    # one coordinate pool per axis: the vertices (the closing vertex is the start vertex) and the arc centers
+    refs = [(i, a) for i in range(n) for a in (0, 1)] + [(("c", k), a) for k in circles for a in (0, 1)]
+    values = []
+    for key, a in refs:
+        values.append(float(pts[key][a]) if not isinstance(key, tuple) else float(circles[key[1]][0][a]))
+    snapped = rounding.cluster_values(values, cluster_tol)
+    new_pts = [np.zeros(2) for _ in range(n)]
+    new_center = {}
+    for (key, a), v in zip(refs, snapped):
+        if isinstance(key, tuple):
+            new_center.setdefault(key[1], [0.0, 0.0])[a] = v
+        else:
+            new_pts[key][a] = v
+    new_pts.append(new_pts[0].copy())
+    out = []
+    for k, sg in enumerate(segs):
+        e = new_pts[k + 1]
+        if sg[0] == "L" or k not in circles:
+            out.append(("L", float(e[0]), float(e[1])) if sg[0] == "L"
+                       else ("A", float(sg[1]), float(sg[2]), float(e[0]), float(e[1])))
+            continue
+        (cx, cy, r), ccw = circles[k]
+        c = new_center[k]
+        d0 = math.hypot(new_pts[k][0] - c[0], new_pts[k][1] - c[1])
+        d1 = math.hypot(e[0] - c[0], e[1] - c[1])
+        r_new = rounding.nice(r)
+        if abs(d0 - r_new) > 0.08 or abs(d1 - r_new) > 0.08:  # the rounded circle misses an end point
+            r_new = rounding.nice((d0 + d1) / 2.0)
+        mid = _arc_mid(c, r_new, new_pts[k], e, ccw)
+        out.append(("A", mid[0], mid[1], float(e[0]), float(e[1])))
+    return new_pts[0], out
 
 
 def _align(p0, segs, bounds, eps=0.06):
@@ -250,12 +440,14 @@ def _align(p0, segs, bounds, eps=0.06):
             if abs(p[k] - r) < 0.03:
                 p[k] = r
     kinds = [s[0] for s in segs]
+    slope = math.tan(math.radians(0.5))
     for i, t in enumerate(kinds):
         if t == "L":
             a, b = pts[i], pts[i + 1]
-            if abs(b[0] - a[0]) < eps and abs(b[1] - a[1]) > eps:
+            dx, dy = abs(b[0] - a[0]), abs(b[1] - a[1])
+            if dx < max(eps, slope * dy) and dy > eps:
                 b[0] = a[0]
-            elif abs(b[1] - a[1]) < eps and abs(b[0] - a[0]) > eps:
+            elif dy < max(eps, slope * dx) and dx > eps:
                 b[1] = a[1]
     pts[-1] = pts[0].copy()
     for p in pts:
@@ -395,6 +587,7 @@ def hole_removed_mask(f, X, Y, Z):
 
 def occupancy(spec, ext, step):
     """3D boolean occupancy (X, Y, Z) of the model described by the spec."""
+    spec = sp.expand_mirrors(spec)
     ax = make_grid(ext, step)
     occ = np.zeros([len(a) for a in ax], bool)
     for f in spec["features"]:
@@ -425,6 +618,7 @@ def occupancy(spec, ext, step):
 
 def contains(spec, ext, pts):
     """Exact (shapely) membership of 3D points (N, 3) in the spec's model."""
+    spec = sp.expand_mirrors(spec)
     res = np.zeros(len(pts), bool)
     for f in spec["features"]:
         if f["type"] == "hole":
@@ -623,6 +817,103 @@ def slice_and_group(m, ext, n, K=None, max_groups=6, merge_interruptions=False):
     return runs, holes
 
 
+def hole_features(holes, plane):
+    """Hole dicts (from ``detect_holes`` / ``find_blind_holes``) -> hole features; identical holes share one."""
+    groups = {}
+    for f in holes:  # identical holes become a single feature with several centers
+        key = tuple((k, f[k]) for k in sorted(f) if k not in ("x", "y", "idx"))
+        groups.setdefault(key, []).append(f)
+    feats = []
+    for key, fs in groups.items():
+        f0 = fs[0]
+        name = {"countersink": "Countersunk hole", "counterbore": "Counterbored hole",
+                "simple": "Blind hole"}[f0["subtype"]]
+        feat = {"type": "hole", "name": name, "subtype": f0["subtype"], "plane": plane, "offset": f0["face"],
+                "direction": f0["direction"], "points": [[f["x"], f["y"]] for f in fs], "d": f0["d"],
+                "depth": f0["depth"]}
+        for k in ("head_d", "angle", "head_depth"):
+            if k in f0:
+                feat[k] = f0[k]
+        feats.append(feat)
+    return feats
+
+
+def find_blind_holes(m, ext, a, silhouette_geom=None):
+    """Blind round holes whose axis is parallel to axis ``a`` (not visible in the silhouette along ``a``).
+
+    A circular inner ring that keeps the same diameter over several slices is a hole. One end must be open
+    (the center is empty just beyond the track) and the other closed (material beyond it): that is a blind hole
+    with a flat bottom. The face is the outermost mesh coordinate around the hole."""
+    from shapely.geometry import Point
+    length = ext[a]
+    K = int(min(160, max(50, length / 0.25)))
+    step = length / K
+    pos = [step * (i + 0.5) for i in range(K)]
+    regs = [_clean(section(m, a, z)) for z in pos]
+    vertex_levels = np.unique(np.round(m.vertices[:, a], 2))
+    _, A, B = sp.PLANE_AXES[PLANE_NAME[a]]
+    if silhouette_geom is None:
+        silhouette_geom = silhouette(m, a)
+
+    def face_level(center, r, high):
+        v = m.vertices
+        near = np.hypot(v[:, A] - center[0], v[:, B] - center[1]) < r + 1.5
+        if not near.any():
+            return None
+        return float(v[near, a].max() if high else v[near, a].min())
+
+    return _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, face_level)
+
+
+def _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, face_level):
+    from shapely.geometry import Point
+    tracks = []
+    for i, reg in enumerate(regs):
+        for (cx, cy, d) in _circular_rings(reg):
+            for t in tracks:
+                if t["idx"][-1] == i - 1 and math.hypot(t["c"][0] - cx, t["c"][1] - cy) < 0.4:
+                    t["idx"].append(i)
+                    t["d"].append(d)
+                    t["c"] = (cx, cy)
+                    break
+            else:
+                tracks.append({"idx": [i], "d": [d], "c": (cx, cy)})
+
+    def pin(x):
+        c = vertex_levels[np.argmin(np.abs(vertex_levels - x))]
+        return float(c) if abs(c - x) <= 1.5 * step else round(x, 2)
+
+    holes = []
+    for t in tracks:
+        d = np.array(t["d"])
+        if len(t["idx"]) < 3 or np.ptp(d) > 0.3 or np.median(d) < 0.8:
+            continue
+        center = Point(t["c"])
+        if not center.within(silhouette_geom):  # a through hole: handled by the silhouette cut
+            continue
+        i0, i1 = t["idx"][0], t["idx"][-1]
+        low_open = i0 == 0 or not regs[i0 - 1].contains(center)
+        high_open = i1 == len(regs) - 1 or not regs[i1 + 1].contains(center)
+        if low_open == high_open:  # through, or an internal cavity
+            continue
+        r = float(np.median(d)) / 2.0
+        face = face_level(t["c"], r, high_open)
+        if face is None:
+            continue
+        if high_open:
+            bottom = pin((pos[i0] + pos[i0 - 1]) / 2.0 if i0 > 0 else pos[i0] - step / 2.0)
+            face = max(pin(face), pos[i1])
+            direction = -1
+        else:
+            bottom = pin((pos[i1] + pos[i1 + 1]) / 2.0 if i1 + 1 < len(pos) else pos[i1] + step / 2.0)
+            face = min(pin(face), pos[i0])
+            direction = 1
+        holes.append(dict(x=round(t["c"][0], 3), y=round(t["c"][1], 3), d=round(float(np.median(d)), 2),
+                          face=round(face, 3), direction=direction, depth=round(abs(face - bottom), 3),
+                          subtype="simple", idx=(i0, i1)))
+    return holes
+
+
 def plan(m, ext, n, tol, merge_interruptions=False):
     """Body features (base + runs) and hole features for extrusion axis ``n``."""
     runs, holes = slice_and_group(m, ext, n, merge_interruptions=merge_interruptions)
@@ -650,20 +941,7 @@ def plan(m, ext, n, tol, merge_interruptions=False):
                           "offset": round(z0, 2), "direction": 1, "operation": oper,
                           "distance": round(z1 - z0, 2),
                           "sketch": compact(region_shapes(reg.simplify(0.02), tol, bounds))})
-    groups = {}
-    for f in holes:  # identical holes become a single feature with several centers
-        key = tuple((k, f[k]) for k in sorted(f) if k not in ("x", "y", "idx"))
-        groups.setdefault(key, []).append(f)
-    for key, fs in groups.items():
-        f0 = fs[0]
-        name = {"countersink": "Countersunk hole", "counterbore": "Counterbored hole"}[f0["subtype"]]
-        feat = {"type": "hole", "name": name, "subtype": f0["subtype"], "plane": plane, "offset": f0["face"],
-                "direction": f0["direction"], "points": [[f["x"], f["y"]] for f in fs], "d": f0["d"],
-                "depth": f0["depth"]}
-        for k in ("head_d", "angle", "head_depth"):
-            if k in f0:
-                feat[k] = f0[k]
-        feats.append(feat)
+    feats += hole_features(holes, plane)
     return feats, len(runs)
 
 
@@ -793,6 +1071,26 @@ def _prune(spec, ext, pts2, inside2):
     return current, pruned
 
 
+def _apply_mirror(spec, ext, pts, inside):
+    """Replace mirrored duplicates by a mirror feature when that keeps the IoU. Return a note for the spec."""
+    base_iou = _iou_points(spec, ext, pts, inside)
+    best = None
+    for axis in (0, 1, 2):
+        c = rounding.nice(ext[axis] / 2.0)
+        feats, saved = symmetry.mirror_features(spec["features"], axis, c, ext)
+        if saved <= 0:
+            continue
+        trial = {"system": "model", "features": feats}
+        value = _iou_points(trial, ext, pts, inside)
+        if value >= base_iou - 0.001 and (best is None or saved > best[0]):
+            best = (saved, feats, axis, c)
+    if best is None:
+        return None
+    spec["features"] = best[1]
+    return {"plane": next(p for p, v in sp.PLANE_AXES.items() if v[0] == best[2]), "offset": best[3],
+            "removed_duplicates": best[0]}
+
+
 def _convert_mesh(m, tol, part):
     ext = [round(float(e), 3) for e in m.extents]
     pts, inside = sample_points(m, ext)
@@ -805,20 +1103,30 @@ def _convert_mesh(m, tol, part):
         if best is None or score > best[0]:
             best = (score, n)
     n = best[1]
+    # blind holes across the extrusion axis are independent of the run plan: detect them once
+    blind_features = []
+    for a in [x for x in (2, 1, 0) if x != n]:
+        blind_features += hole_features(find_blind_holes(m, ext, a), PLANE_NAME[a])
     results = []
     for merge in (False, True):
         feats, n_runs = plan(m, ext, n, tol, merge)
         if merge and n_runs == results[0][3]:  # nothing to merge: same result
             continue
         _silhouette_cuts(m, ext, feats, n, tol)
+        feats += [dict(f) for f in blind_features]
         spec = {"system": "model", "features": feats}
         value, pruned = _prune(spec, ext, pts2, inside2)
         results.append((value - 0.006 * len(feats), spec, value, n_runs, pruned, merge))
     _, spec, value, _, pruned, merge = max(results, key=lambda r: r[0])
+    raw_diameters = fits.raw_diameters(spec)
+    rounding.round_spec(spec)
+    symmetry.unique_names(spec["features"])
+    mirror_note = _apply_mirror(spec, ext, pts2, inside2)
     spec["notes"] = {"part": part, "estimated_iou": round(value, 4),
                      "origin": "minimum corner of the mesh bounding box at the origin",
+                     "original_min": [round(float(v), 3) for v in m.metadata.get("original_min", [0, 0, 0])],
                      "extrusion_axis": AXIS_NAME[n], "tolerance_mm": tol, "pruned_features": pruned,
-                     "merged_interruptions": merge}
+                     "merged_interruptions": merge, "raw_diameters": raw_diameters, "mirror": mirror_note}
     return m, ext, spec, value
 
 

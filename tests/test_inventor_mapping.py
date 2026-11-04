@@ -94,3 +94,69 @@ def test_slug_is_ascii_and_safe():
     assert inv._slug("Recess 6.2 to 8.8") == "Recess_6_2_to_8_8"
     assert inv._slug("Sketch - Ação") == "Sketch_Acao"
     assert inv._slug("***") == "P"
+
+
+# --- redundancy probe and profile check (fake Inventor objects) ---------------------------------------
+class FakeParameter:
+    def __init__(self, value):
+        self.Value = value
+
+
+class FakeDim:
+    def __init__(self, value):
+        self.Parameter = FakeParameter(value)
+
+
+def test_independent_dimension_is_kept():
+    dim = FakeDim(2.0)
+    state = {"geometry": 2.0}
+
+    def update():  # the geometry follows the parameter
+        state["geometry"] = dim.Parameter.Value
+
+    assert inv._is_independent(dim, lambda: state["geometry"], update) is True
+    assert dim.Parameter.Value == 2.0  # the original value is restored
+
+
+def test_redundant_dimension_is_detected():
+    dim = FakeDim(2.0)
+    # the geometry is already determined by other constraints, so it ignores the parameter
+    assert inv._is_independent(dim, lambda: 2.0, lambda: None) is False
+    assert dim.Parameter.Value == 2.0
+
+
+def test_probe_survives_an_api_error():
+    dim = FakeDim(2.0)
+
+    def update():
+        raise RuntimeError("solver failed")
+
+    assert inv._is_independent(dim, lambda: 2.0, update) is False
+
+
+class FakeProfile:
+    def __init__(self, area_cm2):
+        class Props:
+            Area = area_cm2
+        self.RegionProperties = Props()
+
+
+def test_profile_area_must_match_the_spec():
+    feature = {"sketch": [{"shape": "rectangle", "x": 0, "y": 0, "width": 40, "height": 30}]}  # 1200 mm2
+    assert inv._profile_matches(FakeProfile(12.0), feature)
+    assert not inv._profile_matches(FakeProfile(3.0), feature)   # a deformed sketch (25%)
+    assert not inv._profile_matches(FakeProfile(13.5), feature)  # 12.5% too large
+
+
+def test_profile_check_is_skipped_when_the_area_is_unavailable():
+    class Broken:
+        @property
+        def RegionProperties(self):
+            raise RuntimeError("no properties")
+
+    assert inv._profile_matches(Broken(), {"sketch": [{"shape": "circle", "x": 0, "y": 0, "d": 5}]})
+
+
+def test_sketch_schemes_end_with_plain_lines():
+    assert inv.SKETCH_SCHEMES[0] == (True, True)      # arcs + tangent constraints first
+    assert inv.SKETCH_SCHEMES[-1] == (False, False)   # plain line segments last
