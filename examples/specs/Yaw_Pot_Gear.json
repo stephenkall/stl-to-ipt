@@ -546,10 +546,23 @@
   "part": "Yaw_Pot_Gear",
   "estimated_iou": 0.9934,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -17.998,
+   -17.371,
+   -0.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 1,
+    "d": 6.5
+   }
+  ],
+  "mirror": null,
   "iou": 0.9929
  }
 }

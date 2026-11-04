@@ -202,6 +202,8 @@ def run_command(stl_dir, out_dir, tol=0.12, workers=None, cache_dir=".cache", us
     if _stop:
         log.warning("Interrupted: progress saved to %s. Re-run to continue.", cache_dir)
         return 130
+    from . import fits
+    log_fit_report(fits.analyze_directory(spec_dir, apply=True))  # protect the fits that rounding could change
     log.info("Stage 2/2 - Building .ipt files in Inventor")
     existing = [s for s in specs if os.path.exists(s)]
     ok, failures = build_stage(existing, ipt_dir, StageCache(cache_dir, "build", use_cache), use_cache)
@@ -209,6 +211,17 @@ def run_command(stl_dir, out_dir, tol=0.12, workers=None, cache_dir=".cache", us
     for n, e in failures:
         log.error(" - %s: %s", n, e)
     return 0 if not failures else 3
+
+
+def log_fit_report(report):
+    """Log the shaft/hole pairs found by ``fits.analyze_directory``."""
+    if not report:
+        log.info("Fit check: no mating shaft/hole pairs found.")
+        return
+    for shaft, hole, raw, rounded, verdict, d_s, d_h in report:
+        line = "Fit %s (shaft %.2f) in %s (hole %.2f): clearance %.2f -> %.2f mm [%s]" % (
+            shaft, d_s, hole, d_h, raw, rounded, verdict)
+        (log.info if verdict == "ok" else log.warning)(line)
 
 
 def summary_json(spec_dir):

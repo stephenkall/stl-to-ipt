@@ -38,9 +38,20 @@ each plane is read from Inventor, so the result does not depend on the template'
 
 ## Hole feature
 
-An Inventor Hole feature placed on sketch points. `subtype` is `simple`, `countersink` (needs `head_d` and
-`angle` in degrees) or `counterbore` (needs `head_d` and `head_depth`). `d` is the hole diameter, `depth` the
+An Inventor Hole feature placed on sketch points. `subtype` is `simple` (a blind hole with a flat bottom),
+`countersink` (needs `head_d` and `angle` in degrees) or `counterbore` (needs `head_d` and `head_depth`). `d` is the hole diameter, `depth` the
 drilled depth, `offset` the plane of the hole's face, and `points` a list of `[x, y]` centers.
+
+## Mirror feature
+
+```json
+{"type": "mirror", "name": "Mirror YZ", "plane": "YZ", "offset": 35.0, "features": ["Pad 0.0 to 3.0"]}
+```
+
+Mirrors the listed features (they must come earlier in the list and have unique names) about the plane `plane`
+(`YZ` mirrors along X, `XZ` along Y, `XY` along Z) placed at `offset`. The converter writes it when a part is
+symmetric: duplicated features and mirror-twin shapes or hole centers are removed and replaced by one mirror.
+Tools that evaluate geometry call `spec.expand_mirrors(spec)` to get the plain feature list back.
 
 ## Shapes
 
@@ -59,7 +70,9 @@ single pitch parameter in Inventor.
 ## Notes
 
 The optional `notes` object records how the converter produced the spec (`part`, `extrusion_axis`,
-`tolerance_mm`, `iou`, `pruned_features`, ...). It is informational and ignored when building.
+`tolerance_mm`, `iou`, `pruned_features`, ...). It is informational and ignored when building, with two
+exceptions used by the fit check: `original_min` (position of the part in the shared design frame) and
+`raw_diameters` (diameters before rounding).
 
 ## Parameters created in Inventor
 

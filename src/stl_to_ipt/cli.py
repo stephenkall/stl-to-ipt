@@ -51,6 +51,10 @@ def build_parser():
     p.add_argument("--skip", action="append", default=[], help="skip STL files whose name contains this text")
     _add_cache_flags(p)
 
+    p = sub.add_parser("fits", help="check the fit between mating parts in a folder of specs")
+    p.add_argument("spec_dir")
+    p.add_argument("--apply", action="store_true", help="repair clearances changed by rounding (rewrites the specs)")
+
     p = sub.add_parser("preview", help="render a PNG preview of a spec's sketches")
     p.add_argument("spec")
     p.add_argument("png")
@@ -73,6 +77,12 @@ def main(argv=None):
         m = load_mesh(args.stl)
         print("IoU = %.4f" % iou(m, sp.load(args.spec), [float(e) for e in m.extents], args.points))
         return 0
+    if args.command == "fits":
+        from . import fits
+        from .batch import log_fit_report
+        report = fits.analyze_directory(args.spec_dir, apply=args.apply)
+        log_fit_report(report)
+        return 0 if all(r[4] == "ok" for r in report) or args.apply else 4
     if args.command == "preview":
         from .preview import render
         print("Preview saved:", render(args.spec, args.png))

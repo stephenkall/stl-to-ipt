@@ -20,12 +20,12 @@
       [
        "L",
        0.0,
-       30.981
+       31.0
       ],
       [
        "L",
        50.0,
-       30.981
+       31.0
       ],
       [
        "L",
@@ -48,25 +48,25 @@
      "shape": "contour",
      "start": [
       5.0,
-      12.774
+      12.77
      ],
      "segments": [
       [
        "A",
        8.5,
-       11.836,
-       11.062,
-       9.274
+       11.832,
+       11.06,
+       9.27
       ],
       [
        "L",
-       33.938,
+       33.94,
        22.5
       ],
       [
        "A",
-       33.239,
-       24.169,
+       33.234,
+       24.188,
        33.0,
        26.0
       ],
@@ -78,14 +78,14 @@
       [
        "A",
        9.95,
-       21.031,
+       21.05,
        5.0,
        19.0
       ],
       [
        "L",
        5.0,
-       12.774
+       12.77
       ]
      ]
     }
@@ -101,15 +101,15 @@
    "points": [
     [
      40.0,
-     25.981
+     26.0
     ],
     [
      5.0,
-     25.981
+     26.0
     ],
     [
      5.0,
-     5.773
+     5.77
     ]
    ],
    "d": 4.0,
@@ -120,12 +120,25 @@
  ],
  "notes": {
   "part": "Limiter",
-  "estimated_iou": 0.9927,
+  "estimated_iou": 0.9929,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -0.0,
+   -30.981,
+   0.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
-  "iou": 0.9933
+  "raw_diameters": [
+   {
+    "feature": 1,
+    "shape": null,
+    "d": 4.0
+   }
+  ],
+  "mirror": null,
+  "iou": 0.9926
  }
 }

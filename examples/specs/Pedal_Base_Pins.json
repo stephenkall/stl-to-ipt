@@ -50,7 +50,7 @@
      "x": 0.0,
      "y": 0.0,
      "width": 35.0,
-     "height": 108.129
+     "height": 108.13
     }
    ]
   },
@@ -63,36 +63,74 @@
    "direction": 1,
    "points": [
     [
-     28.712,
-     6.288
+     28.7,
+     6.3
     ],
     [
-     28.712,
-     101.841
-    ],
-    [
-     6.288,
-     6.288
-    ],
-    [
-     6.288,
-     101.841
+     28.7,
+     101.85
     ]
    ],
    "d": 3.0,
    "depth": 5.0,
    "head_d": 6.0,
    "angle": 90.0
+  },
+  {
+   "type": "mirror",
+   "name": "Mirror YZ",
+   "plane": "YZ",
+   "offset": 17.5,
+   "features": [
+    "Countersunk hole"
+   ]
   }
  ],
  "notes": {
   "part": "Pedal_Base_Pins",
   "estimated_iou": 0.9993,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -17.5,
+   -47.64,
+   -83.415
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 0,
+    "d": 25.0
+   },
+   {
+    "feature": 0,
+    "shape": 1,
+    "d": 3.0
+   },
+   {
+    "feature": 0,
+    "shape": 2,
+    "d": 25.0
+   },
+   {
+    "feature": 0,
+    "shape": 3,
+    "d": 3.0
+   },
+   {
+    "feature": 2,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
+  "mirror": {
+   "plane": "YZ",
+   "offset": 17.5,
+   "removed_duplicates": 2
+  },
   "rotation_applied_before_slicing": {
    "axis": "X",
    "degrees": 20

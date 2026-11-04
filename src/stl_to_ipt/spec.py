@@ -3,6 +3,7 @@
 A spec is a JSON document that describes a part as a list of features. In the ``"model"`` system every
 feature uses global X/Y/Z coordinates with the mesh's minimum corner at the origin.
 """
+import copy
 import json
 import math
 
@@ -193,6 +194,106 @@ def slot_points(s):
     return a1, a2, mid2, b2, b1, mid1
 
 
+# ----------------------------------------------------------------------------- mirroring
+def mirror_axis(plane):
+    """Global axis (0=X, 1=Y, 2=Z) that is normal to the mirror plane ``plane``."""
+    return PLANE_AXES[plane][0]
+
+
+def _reflect_shape(s, axis_index, c):
+    """Reflect one sketch shape about the line ``coordinate[axis_index] == c`` (axis_index 0 = sketch x,
+    1 = sketch y). Return None for shapes that cannot be reflected."""
+    s = copy.deepcopy(s)
+    k = ("x", "y")[axis_index]
+    shape = s["shape"]
+
+    def r(v):
+        return 2 * c - v
+
+    pat = s.get("pattern")
+    if pat and pat.get("type") != "linear":
+        return None
+    if shape == "circle":
+        s[k] = r(s[k])
+    elif shape == "rectangle":
+        size = "width" if axis_index == 0 else "height"
+        s[k] = r(s[k]) if s.get("centered") else r(s[k] + s[size])
+    elif shape == "polygon":
+        s["points"] = [[r(p[0]), p[1]] if axis_index == 0 else [p[0], r(p[1])] for p in s["points"]]
+    elif shape == "slot":
+        s[k + "1"], s[k + "2"] = r(s[k + "1"]), r(s[k + "2"])
+    elif shape == "contour":
+        def pt(x, y):
+            return [r(x), y] if axis_index == 0 else [x, r(y)]
+        s["start"] = pt(*s["start"])
+        segs = []
+        for sg in s["segments"]:
+            if sg[0] == "L":
+                segs.append(["L"] + pt(sg[1], sg[2]))
+            else:
+                segs.append(["A"] + pt(sg[1], sg[2]) + pt(sg[3], sg[4]))
+        s["segments"] = segs
+    else:
+        return None
+    if pat:
+        d = "dx" if axis_index == 0 else "dy"
+        if d in pat:
+            pat[d] = -pat[d]
+    return s
+
+
+def reflect_feature(f, axis, c):
+    """Mirror image of feature ``f`` about the plane whose normal is global ``axis`` at coordinate ``c``.
+    Return None when the feature cannot be reflected."""
+    f = copy.deepcopy(f)
+    n, A, B = PLANE_AXES[f["plane"]]
+    if f["type"] == "hole":
+        if axis == n:
+            f["offset"] = 2 * c - f.get("offset", 0)
+            f["direction"] = -f.get("direction", 1)
+        else:
+            k = 0 if axis == A else 1
+            f["points"] = [[2 * c - p[0], p[1]] if k == 0 else [p[0], 2 * c - p[1]] for p in f["points"]]
+        return f
+    if f["type"] != "extrusion":
+        return None
+    if axis == n:
+        f["offset"] = 2 * c - f.get("offset", 0)
+        f["direction"] = -f.get("direction", 1)
+        return f
+    k = 0 if axis == A else 1
+    shapes = [_reflect_shape(s, k, c) for s in f["sketch"]]
+    if any(s is None for s in shapes):
+        return None
+    f["sketch"] = shapes
+    return f
+
+
+def expand_mirrors(spec):
+    """Spec without ``mirror`` features: each one is replaced by the mirrored copies of the features it lists.
+    Used wherever the geometry has to be evaluated (IoU, previews)."""
+    feats = spec["features"]
+    if not any(f["type"] == "mirror" for f in feats):
+        return spec
+    by_name = {}
+    out = []
+    for f in feats:
+        if f["type"] != "mirror":
+            by_name[f.get("name")] = f
+            out.append(f)
+            continue
+        axis, c = mirror_axis(f["plane"]), f.get("offset", 0)
+        for name in f["features"]:
+            r = reflect_feature(by_name[name], axis, c)
+            if r is None:
+                raise ValueError("feature '%s' cannot be mirrored" % name)
+            r["name"] = name + " (mirrored)"
+            out.append(r)
+    new = dict(spec)
+    new["features"] = out
+    return new
+
+
 def validate(spec):
     """Return ``(errors, warnings)``."""
     errors, warnings = [], []
@@ -244,6 +345,16 @@ def validate(spec):
                 errors.append("%s: head_d must be larger than d." % tag)
             if f.get("direction", 1) not in (1, -1):
                 errors.append("%s: direction must be 1 or -1." % tag)
+        elif t == "mirror":
+            if f.get("plane") not in PLANES:
+                errors.append("%s: invalid plane." % tag)
+            earlier = {g.get("name") for g in feats[:i - 1] if g.get("type") != "mirror"}
+            listed = f.get("features") or []
+            if not listed:
+                errors.append("%s: no features to mirror." % tag)
+            for name in listed:
+                if name not in earlier:
+                    errors.append("%s: unknown feature '%s' (it must come earlier in the list)." % (tag, name))
         elif t == "revolve":
             p = f.get("profile", [])
             if len(p) < 3:

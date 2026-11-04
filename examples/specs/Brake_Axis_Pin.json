@@ -36,59 +36,57 @@
    ]
   },
   {
-   "type": "extrusion",
-   "name": "Recess 84.2 to 85.9",
-   "plane": "YZ",
-   "offset": 84.16,
-   "direction": 1,
-   "operation": "cut",
-   "distance": 1.72,
-   "sketch": [
-    {
-     "shape": "contour",
-     "start": [
-      7.575,
-      6.068
-     ],
-     "segments": [
-      [
-       "L",
-       7.533,
-       8.88
-      ],
-      [
-       "L",
-       11.708,
-       8.942
-      ],
-      [
-       "A",
-       12.007,
-       7.47,
-       11.721,
-       6.046
-      ],
-      [
-       "L",
-       7.575,
-       6.068
-      ]
-     ]
-    }
-   ]
+   "type": "hole",
+   "name": "Blind hole",
+   "subtype": "simple",
+   "plane": "XZ",
+   "offset": 12.0,
+   "direction": -1,
+   "points": [
+    [
+     85.0,
+     7.5
+    ]
+   ],
+   "d": 3.0,
+   "depth": 4.5
   }
  ],
  "notes": {
   "part": "Brake_Axis_Pin",
-  "estimated_iou": 0.9985,
+  "estimated_iou": 0.9987,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -10.0,
+   -7.5,
+   -7.495
+  ],
   "extrusion_axis": "X",
   "tolerance_mm": 0.12,
   "pruned_features": [
    "Recess 83.6 to 84.2",
+   "Recess 84.2 to 85.9",
    "Recess 85.9 to 86.4"
   ],
   "merged_interruptions": false,
-  "iou": 0.9971
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 0,
+    "d": 9.0
+   },
+   {
+    "feature": 1,
+    "shape": 0,
+    "d": 15.0
+   },
+   {
+    "feature": 2,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
+  "mirror": null,
+  "iou": 0.9986
  }
 }

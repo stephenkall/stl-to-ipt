@@ -37,10 +37,37 @@ tangent arc are absorbed.
   with shapely `make_valid` and redrawn as line polygons. Closing must use a tolerance: sampled arcs leave
   about 1e-14 of noise, and an exact equality test sends valid arc contours to the repair path.
 
+- Sketch geometry read through COM is stale until the document is recomputed: call `doc.Update()` (here
+  `Context.update`) before measuring after changing a parameter. `sk.ConstraintStatus` returns a constant and is
+  useless for detecting over-constraint.
+- With tangent constraints present, Inventor silently ACCEPTS redundant dimensions (without them it raises). The
+  sketch is then invalid and `AddByDistanceExtent` fails with E_FAIL. `_is_independent` tests every dimension of a
+  contour that has tangents by perturbing its value by 0.02 mm and checking that the geometry follows; redundant
+  dimensions are deleted. Points where segments flow tangentially are not dimensioned at all, except one anchor per
+  direction when nothing else ties the contour to the origin.
+- The junction between two sketch entities is the vertex they share. Do not assume it is the "end" of the first
+  one: Inventor swaps start and end of clockwise arcs.
+- `MirrorFeatures.Add(features, plane, False, 47361)`: 47361 is `kIdenticalCompute`
+  (`kAdjustToModelCompute` is 47362, `kOptimizedCompute` 47363).
+- `SketchArcs.AddByFillet(entity1, entity2, radius, point_on_1, point_on_2)` exists and adds the tangent
+  constraints itself; the contour builder draws the fitted arcs directly and adds `AddTangent`.
+
+## Rounding, fits and mirroring
+
+- `rounding.nice` is the single rounding policy. The converter applies it to the whole spec and `_regularize`
+  clusters contour coordinates and arc centers first, so tangent points line up with the centers they belong to.
+- `fits` needs `notes.original_min` and `notes.raw_diameters`, which the converter writes. Specs without them (or
+  rotated parts) are ignored.
+- `symmetry.mirror_features` is geometry based and guarded by the IoU: `_apply_mirror` keeps a mirror only if the
+  IoU does not drop by more than 0.001. Independent cutters can be split into mirror twins; shapes of an additive
+  sketch cannot (nested shapes are holes of their neighbor).
+
 ## Known limitations
 
 - Parameter counts are high on contour-heavy parts (gears, `Rotation_Bar`), because every X/Y step of a contour
   has a dimension.
-- Plain through holes stay as sketch circles instead of Inventor Hole features.
+- Plain through holes stay as sketch circles instead of Inventor Hole features. Blind holes across the extrusion
+  axis are detected, but blind holes along it still appear as recesses.
+- Only one mirror plane is used per part, and the base profile is always drawn complete.
 - Tilted parts are rotated in the mesh instead of using an inclined work plane.
 - Linear patterns are several shapes inside one sketch, not a rectangular-pattern feature.

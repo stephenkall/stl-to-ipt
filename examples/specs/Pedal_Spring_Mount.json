@@ -65,26 +65,68 @@
     [
      59.0,
      4.5
-    ],
-    [
-     5.0,
-     4.5
     ]
    ],
    "d": 3.0,
    "depth": 5.0,
    "head_d": 7.0,
    "angle": 90.0
+  },
+  {
+   "type": "mirror",
+   "name": "Mirror YZ",
+   "plane": "YZ",
+   "offset": 32.0,
+   "features": [
+    "Countersunk hole"
+   ]
   }
  ],
  "notes": {
   "part": "Pedal_Spring_Mount",
   "estimated_iou": 0.9999,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -32.0,
+   58.5,
+   -12.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 0,
+    "d": 7.0
+   },
+   {
+    "feature": 0,
+    "shape": 1,
+    "d": 7.0
+   },
+   {
+    "feature": 0,
+    "shape": 2,
+    "d": 7.0
+   },
+   {
+    "feature": 0,
+    "shape": 3,
+    "d": 7.0
+   },
+   {
+    "feature": 2,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
+  "mirror": {
+   "plane": "YZ",
+   "offset": 32.0,
+   "removed_duplicates": 1
+  },
   "iou": 0.9995
  }
 }

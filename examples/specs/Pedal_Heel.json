@@ -14,56 +14,56 @@
      "shape": "contour",
      "start": [
       0.0,
-      31.186
+      31.2
      ],
      "segments": [
       [
        "A",
        55.0,
-       8.404,
+       8.4,
        110.0,
-       31.186
+       31.2
       ],
       [
        "L",
        110.0,
-       21.953
+       21.95
       ],
       [
        "L",
-       109.748,
-       21.108
+       109.75,
+       21.1
       ],
       [
        "A",
-       102.969,
-       15.484,
-       95.549,
+       102.958,
+       15.493,
+       95.55,
        10.73
       ],
       [
        "A",
        55.0,
        0.0,
-       14.451,
+       14.45,
        10.73
       ],
       [
        "A",
-       7.169,
-       15.396,
-       0.441,
-       20.827
+       7.181,
+       15.407,
+       0.45,
+       20.83
       ],
       [
        "L",
        0.0,
-       22.08
+       22.1
       ],
       [
        "L",
        0.0,
-       31.186
+       31.2
       ]
      ]
     }
@@ -91,6 +91,11 @@
   "part": "Pedal_Heel",
   "estimated_iou": 0.9909,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -55.0,
+   -75.904,
+   -0.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [
@@ -99,6 +104,14 @@
    "Recess 79.6 to 80.0"
   ],
   "merged_interruptions": false,
-  "iou": 0.9902
+  "raw_diameters": [
+   {
+    "feature": 1,
+    "shape": 0,
+    "d": 3.0
+   }
+  ],
+  "mirror": null,
+  "iou": 0.9905
  }
 }
