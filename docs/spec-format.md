@@ -53,7 +53,11 @@ drilled depth, `offset` the plane of the hole's face, and `points` a list of `[x
 A standard involute spur gear: `module` (mm), `teeth`, `pressure_angle` (degrees), `addendum` and `dedendum` (in
 modules), `phase` (angle of tooth 0 in degrees), `center` in plane coordinates and `distance` (face width). The
 builder creates a root cylinder, one tooth and a circular pattern, all driven by user parameters. Outlines that are
-not a standard involute form (root fillets, profile shift) stay ordinary contours.
+not a standard involute form (profile shift) stay ordinary contours.
+
+A gear that is only partly used is a full `gear` followed by an ordinary `join` extrusion for the plate around it
+and a `cut` extrusion (`Trim gear`) whose rectangles remove the rest of the gear; see `Yaw_Gear` in
+`examples/specs`. The converter detects this itself (`docs/development-notes.md`, "Gear sectors").
 
 ## Patterns
 

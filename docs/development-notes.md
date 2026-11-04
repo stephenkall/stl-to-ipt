@@ -70,13 +70,29 @@ tangent arc are absorbed.
 - Sketch area check: `profile.RegionProperties.Area` is in cm2. The spec side must sample arcs finely (96 steps)
   or large arcs look 1% smaller; sketches that approximate arcs by lines are compared with a looser limit.
 
-## Gear sectors (not implemented)
+## Gear sectors
 
-`Yaw_Gear` is a sector of a 30-tooth module-3 gear with 11 teeth (found from the circular pitch of the tips,
-`pi * m`, and a circle through the tip points). The analytic teeth match the mesh, but replacing the toothed edge of
-the contour by a root arc loses the root fillets and the material between the teeth: the IoU drops from 0.995 to
-about 0.95 and the remaining body contour has more segments than the original. It needs a tooth with a root fillet
-(and a body that keeps the lumps), so the sector stays an ordinary contour for now.
+`Yaw_Gear` is a sector of a 31-tooth module-3 gear sitting on a plate. Replacing its toothed edge by an arc
+loses the root fillets, so the converter instead builds the **whole gear** (`gear` feature), joins the part that
+is not gear (a plain rectangle) and cuts the gear away outside the silhouette (`Trim gear`, up to four rectangles
+around the silhouette's bounding box).
+
+`gears.fit_sector_gear` finds it on the mesh section:
+
+1. the tip circle is the circle that most convex-hull vertices lie on (RANSAC over triples, 0.3 mm);
+2. the tooth count comes from the angular coherence of the tip vertices, `|mean(exp(i z theta))|`, over the counts
+   that give a standard module (at least 1.0) for that tip radius; the tip radius alone is not enough (`z` and
+   `z + 1` differ by 1.5 mm at module 3), and the nominal `m (z + 2) / 2` can be off by a little;
+3. `teeth_present` rejects round bosses: above the pitch circle a gear is solid at the tooth centers and empty
+   halfway between them, a boss is solid everywhere;
+4. the candidates are scored by `edge_agreement`, the fraction of edge points (in the ring of the inner teeth) that
+   are within 0.4 mm of the other shape's edge. Area ratios do not work here: the teeth are a thin strip, so a
+   0.13 mm tip radius error already halves the IoU. Real gears score 0.89 to 1.0, look-alikes 0.43 to 0.53.
+
+The dedendum is chosen by the IoU of the whole composition (the roots are mostly hidden by the teeth). When the
+root circle is larger than the base circle (31 teeth at 25 degrees) the flank starts at the root circle; the choice
+is made when the part is built, so editing module or teeth later must keep the root on the same side of the base
+circle. A sector may lose up to 0.03 of IoU against the contour version (flat roots instead of mesh fillets).
 
 ## Rounding, fits and mirroring
 

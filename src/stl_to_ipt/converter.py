@@ -1109,18 +1109,22 @@ def _apply_gear(m, spec, ext, pts, inside):
         return None
     polys = list(getattr(region, "geoms", [region]))
     outline = max(polys, key=lambda g: g.area)
-    fit = gears.fit_full_gear(outline)
-    if not fit:
-        return None
-    # the contour shape that is the gear outline; everything else in the sketch is a hole (bore)
+    # the contour shape that is the outline; everything else in the sketch is a hole (bore)
     geoms = [sp.shape_to_geometry(s_) for s_ in shapes]
     outer = max(range(len(shapes)), key=lambda i: geoms[i].area)
     inner = [s_ for i, s_ in enumerate(shapes) if i != outer]
+    fit = gears.fit_full_gear(outline)
+    extra = []
+    if not fit:
+        fit = gears.fit_sector_gear(outline)
+        extra = _sector_features(fit, geoms[outer], base) if fit else None
+        if not extra:
+            return None
     gear = {"type": "gear", "name": "Spur gear", "plane": base["plane"], "offset": base.get("offset", 0.0),
             "direction": base.get("direction", 1), "distance": base["distance"], "module": fit["module"],
             "teeth": fit["teeth"], "pressure_angle": fit["pressure_angle"], "addendum": fit["addendum"],
             "dedendum": fit["dedendum"], "phase": fit["phase"], "center": fit["center"]}
-    new = [gear]
+    new = [gear] + extra
     if inner:
         new.append({"type": "extrusion", "name": "Bore", "plane": base["plane"], "offset": base.get("offset", 0.0),
                     "direction": base.get("direction", 1), "operation": "cut", "distance": sp.THROUGH_ALL,
@@ -1128,11 +1132,40 @@ def _apply_gear(m, spec, ext, pts, inside):
     before = _iou_points(spec, ext, pts, inside)
     trial = {"system": "model", "features": new + spec["features"][1:]}
     rounding.round_spec(trial)
-    if _iou_points(trial, ext, pts, inside) < before - 0.01:
+    # a sector is a standard tooth form on top of a mesh with rounded roots: it may lose a little more
+    if _iou_points(trial, ext, pts, inside) < before - (0.03 if extra else 0.01):
         return None
     spec["features"] = trial["features"]
     return {"module": gear["module"], "teeth": gear["teeth"], "pressure_angle": gear["pressure_angle"],
-            "fit_iou": fit["iou"]}
+            "fit_iou": fit.get("iou", fit.get("agreement")), "sector": bool(extra)}
+
+
+def _sector_features(fit, silhouette, base):
+    """Join and cut features that turn a full gear into the part: a plate for what is not gear, and cuts that
+    remove the gear outside the silhouette. None when the plate would not be a simple rectangle."""
+    gear = dict(fit, center=tuple(fit["center"]))
+    bx0, by0, bx1, by1 = silhouette.bounds
+    _, plate, exact = gears.compose_sector(silhouette, gear, silhouette.bounds)
+    if exact:
+        return None
+    common = {"plane": base["plane"], "offset": base.get("offset", 0.0), "direction": base.get("direction", 1)}
+    feats = []
+    if plate:
+        p = plate[0]
+        px0, py0, px1, py1 = p.bounds
+        feats.append(dict(common, type="extrusion", name="Base plate", operation="join", distance=base["distance"],
+                          sketch=[{"shape": "rectangle", "x": px0, "y": py0, "width": px1 - px0,
+                                   "height": py1 - py0}]))
+    cx, cy = fit["center"]
+    tip = fit["module"] * (fit["teeth"] + 2 * fit["addendum"]) / 2.0 + 1.0
+    gx0, gy0, gx1, gy1 = cx - tip, cy - tip, cx + tip, cy + tip
+    strips = [(gx0, gy0, bx0, gy1), (bx1, gy0, gx1, gy1), (bx0, gy0, bx1, by0), (bx0, by1, bx1, gy1)]
+    cuts = [{"shape": "rectangle", "x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
+            for x0, y0, x1, y1 in strips if x1 - x0 > 0.05 and y1 - y0 > 0.05]
+    if cuts:
+        feats.append(dict(common, type="extrusion", name="Trim gear", operation="cut", distance=sp.THROUGH_ALL,
+                          sketch=cuts))
+    return feats
 
 
 def _apply_mirror(spec, ext, pts, inside):

@@ -999,6 +999,16 @@ def gear_parameters(comp, ctx, prefix, f):
     up("psi", "90 / %s + %s" % (n["teeth"], n["inv_a"]), "ul")          # half tooth angle at the base circle (deg)
     up("psi_a", "%s * 1 deg" % n["psi"], "deg")
     up("roll_tip", "sqrt((%s / %s) ^ 2 - 1) * 180 / %s" % (n["tip_r"], n["base_r"], n["pi"]), "ul")  # deg
+    # the flank starts at the base circle, or at the root circle when that one is larger (small tooth counts or
+    # large pressure angles); that choice is made now, so a later edit must keep root and base on the same side
+    rr = gears.radii(f["module"], int(f["teeth"]), f["pressure_angle"], f.get("dedendum", 1.25),
+                     f.get("addendum", 1.0))
+    if rr["root"] > rr["base"]:
+        up("roll_root", "sqrt((%s / %s) ^ 2 - 1) * 180 / %s" % (n["root_r"], n["base_r"], n["pi"]), "ul")
+    else:
+        up("roll_root", "0", "ul")
+    # half angle of the tooth where the flank starts (equals psi when it starts at the base circle)
+    up("theta0", "%s - (%s - atan(%s * %s / 180) / 1 deg)" % (n["psi"], n["roll_root"], n["roll_root"], n["pi"]), "ul")
     return names
 
 
@@ -1024,9 +1034,9 @@ def gear_curve_expressions(n, mapping):
         gy = "%s / 1 mm + (%s) * sin(%s) + (%s) * cos(%s)" % (n["cy"], x, phase, y, phase)
         return ("(%d) * (%s) + (%d) * (%s)" % (m00, gx, m01, gy), "(%d) * (%s) + (%d) * (%s)" % (m10, gx, m11, gy))
 
-    return {"lower": place(lower) + ("0", n["roll_tip"]),
-            "upper": place(upper) + ("0", n["roll_tip"]),
-            "root": place(root) + ("-" + n["psi"], n["psi"])}
+    return {"lower": place(lower) + (n["roll_root"], n["roll_tip"]),
+            "upper": place(upper) + (n["roll_root"], n["roll_tip"]),
+            "root": place(root) + ("-" + n["theta0"], n["theta0"])}
 
 
 def _sketch_matrix(tg, P):
@@ -1044,8 +1054,8 @@ def add_gear(app, comp, tg, f, ctx):
     prefix = _slug(name)[:24]
     rr = gears.radii(f["module"], int(f["teeth"]), f["pressure_angle"], f.get("dedendum", 1.25),
                      f.get("addendum", 1.0))
-    if rr["root"] >= rr["base"]:
-        raise RuntimeError("gears with the root circle outside the base circle are not supported")
+    if rr["root"] >= rr["tip"]:
+        raise RuntimeError("the root circle of the gear is larger than its tip circle")
     plane = f["plane"]
     n, A, B = sp.PLANE_AXES[plane]
 
