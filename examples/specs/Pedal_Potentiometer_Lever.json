@@ -1,0 +1,189 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 19.0,
+   "sketch": [
+    {
+     "shape": "rectangle",
+     "x": 0.0,
+     "y": 30.0,
+     "width": 8.0,
+     "height": 5.0
+    },
+    {
+     "shape": "circle",
+     "x": 4.0,
+     "y": 4.0,
+     "d": 8.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 0.0 to 5.0",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 5.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      35.0
+     ],
+     "segments": [
+      [
+       "L",
+       8.0,
+       35.0
+      ],
+      [
+       "L",
+       8.0,
+       3.681
+      ],
+      [
+       "A",
+       3.966,
+       0.0,
+       0.0,
+       3.749
+      ],
+      [
+       "L",
+       0.0,
+       35.0
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Recess 11.1 to 14.0",
+   "plane": "YZ",
+   "offset": 11.07,
+   "direction": 1,
+   "operation": "cut",
+   "distance": 2.91,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.77,
+      30.165
+     ],
+     "segments": [
+      [
+       "L",
+       2.5,
+       32.0
+      ],
+      [
+       "L",
+       2.577,
+       34.962
+      ],
+      [
+       "L",
+       5.452,
+       35.0
+      ],
+      [
+       "L",
+       5.5,
+       32.0
+      ],
+      [
+       "L",
+       7.25,
+       30.068
+      ],
+      [
+       "L",
+       0.77,
+       30.165
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Through cut axis Y",
+   "plane": "XZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "cut",
+   "distance": "through_all",
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      5.0,
+      8.0
+     ],
+     "segments": [
+      [
+       "L",
+       5.0,
+       30.0
+      ],
+      [
+       "L",
+       18.0,
+       30.0
+      ],
+      [
+       "L",
+       18.0,
+       35.0
+      ],
+      [
+       "L",
+       0.0,
+       35.0
+      ],
+      [
+       "L",
+       19.0,
+       35.0
+      ],
+      [
+       "L",
+       19.0,
+       8.0
+      ],
+      [
+       "L",
+       5.0,
+       8.0
+      ]
+     ]
+    }
+   ]
+  }
+ ],
+ "notes": {
+  "part": "Pedal_Potentiometer_Lever",
+  "estimated_iou": 0.9902,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "X",
+  "tolerance_mm": 0.12,
+  "pruned_features": [
+   "Recess 10.3 to 11.1",
+   "Recess 18.0 to 19.0"
+  ],
+  "merged_interruptions": false,
+  "iou": 0.9918
+ }
+}

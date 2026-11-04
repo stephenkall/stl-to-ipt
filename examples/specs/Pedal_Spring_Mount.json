@@ -1,0 +1,90 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 12.0,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 52.0,
+     "y": 4.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 42.0,
+     "y": 4.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 22.0,
+     "y": 4.5,
+     "d": 7.0
+    },
+    {
+     "shape": "circle",
+     "x": 12.0,
+     "y": 4.5,
+     "d": 7.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 7.0 to 12.0",
+   "plane": "XY",
+   "offset": 7.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 5.0,
+   "sketch": [
+    {
+     "shape": "rectangle",
+     "x": 0.0,
+     "y": 0.0,
+     "width": 64.0,
+     "height": 9.0
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 7.0,
+   "direction": 1,
+   "points": [
+    [
+     59.0,
+     4.5
+    ],
+    [
+     5.0,
+     4.5
+    ]
+   ],
+   "d": 3.0,
+   "depth": 5.0,
+   "head_d": 7.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Pedal_Spring_Mount",
+  "estimated_iou": 0.9999,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [],
+  "merged_interruptions": false,
+  "iou": 0.9995
+ }
+}

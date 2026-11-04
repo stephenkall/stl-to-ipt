@@ -1,0 +1,102 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 35.0,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 17.5,
+     "y": 84.05,
+     "d": 25.0
+    },
+    {
+     "shape": "circle",
+     "x": 17.5,
+     "y": 84.05,
+     "d": 3.0
+    },
+    {
+     "shape": "circle",
+     "x": 17.5,
+     "y": 24.05,
+     "d": 25.0
+    },
+    {
+     "shape": "circle",
+     "x": 17.5,
+     "y": 24.05,
+     "d": 3.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 30.0 to 35.0",
+   "plane": "XY",
+   "offset": 30.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 5.0,
+   "sketch": [
+    {
+     "shape": "rectangle",
+     "x": 0.0,
+     "y": 0.0,
+     "width": 35.0,
+     "height": 108.129
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 30.0,
+   "direction": 1,
+   "points": [
+    [
+     28.712,
+     6.288
+    ],
+    [
+     28.712,
+     101.841
+    ],
+    [
+     6.288,
+     6.288
+    ],
+    [
+     6.288,
+     101.841
+    ]
+   ],
+   "d": 3.0,
+   "depth": 5.0,
+   "head_d": 6.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Pedal_Base_Pins",
+  "estimated_iou": 0.9993,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [],
+  "merged_interruptions": false,
+  "rotation_applied_before_slicing": {
+   "axis": "X",
+   "degrees": 20
+  },
+  "iou": 0.998
+ }
+}

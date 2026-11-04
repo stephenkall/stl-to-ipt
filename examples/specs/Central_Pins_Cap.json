@@ -1,0 +1,88 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 5.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      22.5,
+      0.0
+     ],
+     "segments": [
+      [
+       "A",
+       6.59,
+       6.59,
+       0.0,
+       22.5
+      ],
+      [
+       "L",
+       0.0,
+       82.5
+      ],
+      [
+       "A",
+       22.5,
+       105.0,
+       45.0,
+       82.5
+      ],
+      [
+       "L",
+       45.0,
+       22.5
+      ],
+      [
+       "A",
+       38.41,
+       6.59,
+       22.5,
+       0.0
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 5.0,
+   "direction": -1,
+   "points": [
+    [
+     22.5,
+     22.5
+    ],
+    [
+     22.5,
+     82.5
+    ]
+   ],
+   "d": 3.0,
+   "depth": 5.0,
+   "head_d": 7.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Central_Pins_Cap",
+  "estimated_iou": 0.9998,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [],
+  "merged_interruptions": false,
+  "iou": 0.9994
+ }
+}

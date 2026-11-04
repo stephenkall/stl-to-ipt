@@ -1,0 +1,131 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 30.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      0.0,
+      0.0
+     ],
+     "segments": [
+      [
+       "L",
+       0.0,
+       30.981
+      ],
+      [
+       "L",
+       50.0,
+       30.981
+      ],
+      [
+       "L",
+       50.0,
+       26.0
+      ],
+      [
+       "L",
+       5.0,
+       0.0
+      ],
+      [
+       "L",
+       0.0,
+       0.0
+      ]
+     ]
+    },
+    {
+     "shape": "contour",
+     "start": [
+      5.0,
+      12.774
+     ],
+     "segments": [
+      [
+       "A",
+       8.5,
+       11.836,
+       11.062,
+       9.274
+      ],
+      [
+       "L",
+       33.938,
+       22.5
+      ],
+      [
+       "A",
+       33.239,
+       24.169,
+       33.0,
+       26.0
+      ],
+      [
+       "L",
+       12.0,
+       26.0
+      ],
+      [
+       "A",
+       9.95,
+       21.031,
+       5.0,
+       19.0
+      ],
+      [
+       "L",
+       5.0,
+       12.774
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "hole",
+   "name": "Countersunk hole",
+   "subtype": "countersink",
+   "plane": "XY",
+   "offset": 0.0,
+   "direction": 1,
+   "points": [
+    [
+     40.0,
+     25.981
+    ],
+    [
+     5.0,
+     25.981
+    ],
+    [
+     5.0,
+     5.773
+    ]
+   ],
+   "d": 4.0,
+   "depth": 30.0,
+   "head_d": 8.0,
+   "angle": 90.0
+  }
+ ],
+ "notes": {
+  "part": "Limiter",
+  "estimated_iou": 0.9927,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "Z",
+  "tolerance_mm": 0.12,
+  "pruned_features": [],
+  "merged_interruptions": false,
+  "iou": 0.9933
+ }
+}

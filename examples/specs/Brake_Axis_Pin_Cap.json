@@ -1,0 +1,167 @@
+{
+ "system": "model",
+ "features": [
+  {
+   "type": "extrusion",
+   "name": "Base profile",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "new",
+   "distance": 10.0,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      14.466,
+      4.719
+     ],
+     "segments": [
+      [
+       "A",
+       0.001,
+       7.499,
+       14.466,
+       10.277
+      ],
+      [
+       "A",
+       13.577,
+       7.499,
+       14.466,
+       4.719
+      ]
+     ]
+    },
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 10.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 0.0 to 2.4",
+   "plane": "YZ",
+   "offset": 0.0,
+   "direction": 1,
+   "operation": "join",
+   "distance": 2.35,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 15.0
+    },
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 10.0
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Recess 3.5 to 6.0",
+   "plane": "YZ",
+   "offset": 3.54,
+   "direction": 1,
+   "operation": "cut",
+   "distance": 2.45,
+   "sketch": [
+    {
+     "shape": "contour",
+     "start": [
+      14.196,
+      4.293
+     ],
+     "segments": [
+      [
+       "L",
+       12.851,
+       6.0
+      ],
+      [
+       "L",
+       12.386,
+       6.056
+      ],
+      [
+       "A",
+       12.499,
+       7.502,
+       12.369,
+       8.93
+      ],
+      [
+       "L",
+       12.851,
+       8.97
+      ],
+      [
+       "L",
+       14.193,
+       10.684
+      ],
+      [
+       "L",
+       14.445,
+       10.242
+      ],
+      [
+       "A",
+       13.579,
+       7.492,
+       14.447,
+       4.74
+      ],
+      [
+       "L",
+       14.196,
+       4.293
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "type": "extrusion",
+   "name": "Pad 7.5 to 10.0",
+   "plane": "YZ",
+   "offset": 7.5,
+   "direction": 1,
+   "operation": "join",
+   "distance": 2.5,
+   "sketch": [
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 15.0
+    },
+    {
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 10.0
+    }
+   ]
+  }
+ ],
+ "notes": {
+  "part": "Brake_Axis_Pin_Cap",
+  "estimated_iou": 0.982,
+  "origin": "minimum corner of the mesh bounding box at the origin",
+  "extrusion_axis": "X",
+  "tolerance_mm": 0.12,
+  "pruned_features": [
+   "Recess 6.0 to 6.6"
+  ],
+  "merged_interruptions": false,
+  "iou": 0.9833
+ }
+}
