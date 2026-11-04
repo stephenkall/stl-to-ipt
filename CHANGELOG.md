@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.3.0...v0.4.0) (2026-11-04)
+
+
+### Features
+
+* build gear sectors as a full gear that is trimmed to the part ([9f6e507](https://github.com/stephenkall/stl-to-ipt/commit/9f6e507d3da7c9629840bbe56100611a186b3f91))
+* build gear sectors as a full gear that is trimmed to the part ([61debf9](https://github.com/stephenkall/stl-to-ipt/commit/61debf9e433b8621c3a041035868ba75211aadd1))
+* detect rounded base edges and build them as a fillet feature ([7e082a6](https://github.com/stephenkall/stl-to-ipt/commit/7e082a62cce96332af55d401a72cfffb4f83bc7b))
+* detect rounded base edges and build them as a fillet feature ([710106f](https://github.com/stephenkall/stl-to-ipt/commit/710106fee998c8bb62fa993d5d90b482ea636c00))
+
 ## [0.3.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.2.0...v0.3.0) (2026-11-04)
 
 
