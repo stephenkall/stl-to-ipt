@@ -9,8 +9,8 @@
       "extra-files": [
         "src/stl_to_ipt/__init__.py"
       ],
-      "release-as": "0.1.0",
-      "bump-minor-pre-major": true
+      "bump-minor-pre-major": true,
+      "include-component-in-tag": false
     }
   }
 }
