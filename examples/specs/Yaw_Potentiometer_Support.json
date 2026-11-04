@@ -50,14 +50,14 @@
       [
        "L",
        12.5,
-       32.874
+       32.87
       ],
       [
        "A",
        5.0,
        24.0,
        12.5,
-       15.126
+       15.13
       ],
       [
        "L",
@@ -180,14 +180,14 @@
       [
        "L",
        12.5,
-       32.874
+       32.87
       ],
       [
        "A",
        5.0,
        24.0,
        12.5,
-       15.126
+       15.13
       ],
       [
        "L",
@@ -238,30 +238,53 @@
     [
      21.0,
      43.0
-    ],
-    [
-     5.0,
-     5.0
-    ],
-    [
-     5.0,
-     43.0
     ]
    ],
    "d": 3.0,
    "depth": 5.0,
    "head_d": 7.0,
    "angle": 90.0
+  },
+  {
+   "type": "mirror",
+   "name": "Mirror YZ",
+   "plane": "YZ",
+   "offset": 13.0,
+   "features": [
+    "Countersunk hole"
+   ]
   }
  ],
  "notes": {
   "part": "Yaw_Potentiometer_Support",
   "estimated_iou": 1.0,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -14.0,
+   -24.0,
+   0.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
-  "iou": 0.9996
+  "raw_diameters": [
+   {
+    "feature": 1,
+    "shape": 1,
+    "d": 8.0
+   },
+   {
+    "feature": 3,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
+  "mirror": {
+   "plane": "YZ",
+   "offset": 13.0,
+   "removed_duplicates": 2
+  },
+  "iou": 0.9995
  }
 }

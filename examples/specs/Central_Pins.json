@@ -56,7 +56,7 @@
      "shape": "contour",
      "start": [
       10.0,
-      36.771
+      36.77
      ],
      "segments": [
       [
@@ -64,24 +64,24 @@
        25.0,
        42.5,
        40.0,
-       36.771
+       36.77
       ],
       [
        "L",
        40.0,
-       63.229
+       63.23
       ],
       [
        "A",
        25.0,
        57.5,
        10.0,
-       63.229
+       63.23
       ],
       [
        "L",
        10.0,
-       36.771
+       36.77
       ]
      ]
     }
@@ -102,30 +102,68 @@
     [
      42.5,
      92.5
-    ],
-    [
-     7.5,
-     92.5
-    ],
-    [
-     7.5,
-     7.5
     ]
    ],
    "d": 3.0,
    "depth": 10.0,
    "head_d": 9.0,
    "angle": 90.0
+  },
+  {
+   "type": "mirror",
+   "name": "Mirror YZ",
+   "plane": "YZ",
+   "offset": 25.0,
+   "features": [
+    "Countersunk hole"
+   ]
   }
  ],
  "notes": {
   "part": "Central_Pins",
   "estimated_iou": 0.9995,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -25.0,
+   -50.0,
+   -10.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 0,
+    "d": 25.0
+   },
+   {
+    "feature": 0,
+    "shape": 1,
+    "d": 3.0
+   },
+   {
+    "feature": 0,
+    "shape": 2,
+    "d": 25.0
+   },
+   {
+    "feature": 0,
+    "shape": 3,
+    "d": 3.0
+   },
+   {
+    "feature": 2,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
+  "mirror": {
+   "plane": "YZ",
+   "offset": 25.0,
+   "removed_duplicates": 2
+  },
   "iou": 0.9998
  }
 }

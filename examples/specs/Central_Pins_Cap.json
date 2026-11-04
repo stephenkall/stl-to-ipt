@@ -13,14 +13,14 @@
     {
      "shape": "contour",
      "start": [
-      22.5,
-      0.0
+      45.0,
+      22.5
      ],
      "segments": [
       [
        "A",
-       6.59,
-       6.59,
+       22.5,
+       0.0,
        0.0,
        22.5
       ],
@@ -40,13 +40,6 @@
        "L",
        45.0,
        22.5
-      ],
-      [
-       "A",
-       38.41,
-       6.59,
-       22.5,
-       0.0
       ]
      ]
     }
@@ -63,26 +56,48 @@
     [
      22.5,
      22.5
-    ],
-    [
-     22.5,
-     82.5
     ]
    ],
    "d": 3.0,
    "depth": 5.0,
    "head_d": 7.0,
    "angle": 90.0
+  },
+  {
+   "type": "mirror",
+   "name": "Mirror XZ",
+   "plane": "XZ",
+   "offset": 52.5,
+   "features": [
+    "Countersunk hole"
+   ]
   }
  ],
  "notes": {
   "part": "Central_Pins_Cap",
-  "estimated_iou": 0.9998,
+  "estimated_iou": 0.9994,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -22.5,
+   -52.5,
+   30.0
+  ],
   "extrusion_axis": "Z",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
-  "iou": 0.9994
+  "raw_diameters": [
+   {
+    "feature": 1,
+    "shape": null,
+    "d": 3.0
+   }
+  ],
+  "mirror": {
+   "plane": "XZ",
+   "offset": 52.5,
+   "removed_duplicates": 1
+  },
+  "iou": 0.999
  }
 }

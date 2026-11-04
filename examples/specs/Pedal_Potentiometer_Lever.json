@@ -49,14 +49,14 @@
       [
        "L",
        8.0,
-       3.681
+       4.0
       ],
       [
        "A",
-       3.966,
+       4.0,
        0.0,
        0.0,
-       3.749
+       4.0
       ],
       [
        "L",
@@ -74,13 +74,13 @@
    "offset": 11.07,
    "direction": 1,
    "operation": "cut",
-   "distance": 2.91,
+   "distance": 2.9,
    "sketch": [
     {
      "shape": "contour",
      "start": [
       0.77,
-      30.165
+      30.16
      ],
      "segments": [
       [
@@ -90,12 +90,12 @@
       ],
       [
        "L",
-       2.577,
-       34.962
+       2.6,
+       35.0
       ],
       [
        "L",
-       5.452,
+       5.5,
        35.0
       ],
       [
@@ -106,12 +106,12 @@
       [
        "L",
        7.25,
-       30.068
+       30.07
       ],
       [
        "L",
        0.77,
-       30.165
+       30.16
       ]
      ]
     }
@@ -175,8 +175,13 @@
  ],
  "notes": {
   "part": "Pedal_Potentiometer_Lever",
-  "estimated_iou": 0.9902,
+  "estimated_iou": 0.99,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   -55.0,
+   39.5,
+   -35.0
+  ],
   "extrusion_axis": "X",
   "tolerance_mm": 0.12,
   "pruned_features": [
@@ -184,6 +189,14 @@
    "Recess 18.0 to 19.0"
   ],
   "merged_interruptions": false,
-  "iou": 0.9918
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 1,
+    "d": 8.0
+   }
+  ],
+  "mirror": null,
+  "iou": 0.992
  }
 }

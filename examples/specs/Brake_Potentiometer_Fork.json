@@ -13,7 +13,7 @@
     {
      "shape": "contour",
      "start": [
-      9.969,
+      10.0,
       1.5
      ],
      "segments": [
@@ -51,14 +51,14 @@
       ],
       [
        "L",
-       9.969,
+       10.0,
        10.5
       ],
       [
        "A",
        12.0,
        6.0,
-       9.969,
+       10.0,
        1.5
       ]
      ]
@@ -74,12 +74,25 @@
  ],
  "notes": {
   "part": "Brake_Potentiometer_Fork",
-  "estimated_iou": 0.9988,
+  "estimated_iou": 0.9984,
   "origin": "minimum corner of the mesh bounding box at the origin",
+  "original_min": [
+   0.0,
+   -6.0,
+   -6.0
+  ],
   "extrusion_axis": "X",
   "tolerance_mm": 0.12,
   "pruned_features": [],
   "merged_interruptions": false,
-  "iou": 0.9983
+  "raw_diameters": [
+   {
+    "feature": 0,
+    "shape": 1,
+    "d": 6.5
+   }
+  ],
+  "mirror": null,
+  "iou": 0.998
  }
 }
