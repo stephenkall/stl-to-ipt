@@ -6,7 +6,11 @@
       "package-name": "stl-to-ipt",
       "include-v-in-tag": true,
       "changelog-path": "CHANGELOG.md",
-      "extra-files": ["src/stl_to_ipt/__init__.py"]
+      "extra-files": [
+        "src/stl_to_ipt/__init__.py"
+      ],
+      "release-as": "0.1.0",
+      "bump-minor-pre-major": true
     }
   }
 }
