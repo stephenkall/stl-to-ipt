@@ -52,6 +52,32 @@ tangent arc are absorbed.
 - `SketchArcs.AddByFillet(entity1, entity2, radius, point_on_1, point_on_2)` exists and adds the tangent
   constraints itself; the contour builder draws the fitted arcs directly and adds `AddTangent`.
 
+- **Equation curves** (`SketchEquationCurves.Add(98305, 98561, x, y, t_min, t_max)`): the expressions and the range
+  accept document parameters. Trigonometric arguments are read as degrees. A literal `pi` with more than nine
+  digits, or a parameter holding `pi`, makes the profile impossible to extrude; use `3.14159265` everywhere in an
+  equation. Curves that must close should share their end points: draw the tip arc with
+  `AddByCenterStartEndPoint` using the end points of the flank curves (a gap of 1e-8 mm already breaks the profile)
+  and connect the other ends with `AddByTwoPoints` on the curves' own `SketchPoint`s.
+- Parameter expressions: no `pi` constant (use `acos(-1) / 1 rad`), trigonometry needs an angle (`tan(a)` with an
+  angle parameter, or `x * 1 deg`), and `atan(x) / 1 deg` converts back to a plain number.
+- **Sketch patterns**: `RectangularPatterns.CreateDefinition(geometries, direction_entity, count, natural, False,
+  spacing)` reads a numeric spacing in document units (mm here) and silently creates nothing when the spacing is a
+  string. `CircularPatterns.CreateDefinition(geometries, center_point, True, count, spacing_deg, False, True, False)`
+  reads degrees (with `Fitted` true, 360 degrees would put the last copy on the first). The pattern direction must be
+  derived from the real sketch geometry, because the sketch axes can be mirrored relative to the spec.
+- **Pattern features**: `CircularPatternFeatures.Add(features, axis, True, count, angle_radians, True, 47361)`;
+  `WorkAxes.AddFixed` takes a geometry `Point` and a `UnitVector` (not a `WorkPoint`).
+- Sketch area check: `profile.RegionProperties.Area` is in cm2. The spec side must sample arcs finely (96 steps)
+  or large arcs look 1% smaller; sketches that approximate arcs by lines are compared with a looser limit.
+
+## Gear sectors (not implemented)
+
+`Yaw_Gear` is a sector of a 30-tooth module-3 gear with 11 teeth (found from the circular pitch of the tips,
+`pi * m`, and a circle through the tip points). The analytic teeth match the mesh, but replacing the toothed edge of
+the contour by a root arc loses the root fillets and the material between the teeth: the IoU drops from 0.995 to
+about 0.95 and the remaining body contour has more segments than the original. It needs a tooth with a root fillet
+(and a body that keeps the lumps), so the sector stays an ordinary contour for now.
+
 ## Rounding, fits and mirroring
 
 - `rounding.nice` is the single rounding policy. The converter applies it to the whole spec and `_regularize`

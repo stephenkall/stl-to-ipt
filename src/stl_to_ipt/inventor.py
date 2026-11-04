@@ -16,6 +16,7 @@ import os
 import re
 import unicodedata
 
+from . import gears
 from . import spec as sp
 
 MM = 0.1  # mm -> cm (internal unit of the Inventor API)
@@ -562,32 +563,149 @@ def draw_shape(sk, P, s, arcs=True, tangents=True):
     return []
 
 
-def draw_sketch(sk, tg, P, sketch, arcs, ctx, prefix, tangents=True):
+def _linear_pattern_1d(s):
+    """(count, step_mm, horizontal) of a one-dimensional linear pattern worth a sketch pattern, else None."""
+    pat = s.get("pattern")
+    if not pat or pat.get("type") != "linear" or s["shape"] not in ("rectangle", "circle"):
+        return None
+    nx, ny = int(pat.get("nx", 1)), int(pat.get("ny", 1))
+    if nx >= 3 and ny == 1:
+        return nx, float(pat.get("dx", 0)), True
+    if ny >= 3 and nx == 1:
+        return ny, float(pat.get("dy", 0)), False
+    return None
+
+
+def _circular_pattern_info(s):
+    """(count, cx, cy) of a circle with a circular pattern, else None."""
+    pat = s.get("pattern")
+    if pat and pat.get("type") == "circular" and s["shape"] == "circle" and int(pat["n"]) >= 3 and "cx" in pat:
+        return int(pat["n"]), pat["cx"], pat["cy"]
+    return None
+
+
+def make_sketch_circular_pattern(sk, tg, ctx, item, count, cx, cy, prefix, tag, P, origin):
+    """Circular pattern of a drawn circle around the point (cx, cy); the count becomes a parameter."""
+    kind, obj, _ = item
+    col = sk.Application.TransientObjects.CreateObjectCollection()
+    col.Add(obj)
+    center = sk.SketchPoints.Add(P(cx, cy), False)
+    for horizontal, value, key in ((True, cx, "x"), (False, cy, "y")):  # fix the center against the origin
+        if abs(value) > 1e-9:
+            _dimension(sk, tg, origin, center, horizontal, ctx, "%s_ring_%s%s" % (prefix, key, tag))
+        else:
+            (sk.GeometricConstraints.AddVerticalAlign if horizontal
+             else sk.GeometricConstraints.AddHorizontalAlign)(origin, center)
+    before = {q.Name for q in ctx.comp.Parameters}
+    patterns = sk.CircularPatterns
+    # unlike a circular pattern feature, a sketch pattern reads the angle in degrees; with Fitted=False the angle is
+    # the spacing between instances (a fitted 360 degrees would put the last instance on the first)
+    patterns.Add(patterns.CreateDefinition(col, center, True, count, 360.0 / count, False, True, False))
+    for q in ctx.comp.Parameters:
+        if q.Name not in before and str(q.Expression).strip().endswith("ul"):
+            ctx.name_parameter(q, "%s_ring_count%s" % (prefix, tag))
+
+
+def make_sketch_pattern(sk, tg, ctx, item, count, step_mm, horizontal, prefix, tag, P, base):
+    """Rectangular pattern of a drawn rectangle/circle inside the sketch (count and pitch become parameters).
+
+    The pattern direction is derived from the real sketch geometry: the sketch axes may be mirrored or swapped
+    relative to the spec coordinates, so ``P`` maps the spec step into sketch space."""
+    kind, obj, _ = item
+    x, y = base["x"], base["y"]
+    a = P(x, y)
+    b = P(x + step_mm, y) if horizontal else P(x, y + step_mm)
+    want = (b.X - a.X, b.Y - a.Y)  # intended direction of the pattern, in sketch space
+    norm = (want[0] ** 2 + want[1] ** 2) ** 0.5 or 1.0
+    want = (want[0] / norm, want[1] / norm)
+    col = sk.Application.TransientObjects.CreateObjectCollection()
+    natural = True
+    if kind == "rect":
+        direction = None
+        for line in obj:
+            col.Add(line)
+            g0, g1 = line.StartSketchPoint.Geometry, line.EndSketchPoint.Geometry
+            v = (g1.X - g0.X, g1.Y - g0.Y)
+            n = (v[0] ** 2 + v[1] ** 2) ** 0.5 or 1.0
+            dot = (v[0] * want[0] + v[1] * want[1]) / n
+            if direction is None and abs(dot) > 0.99:
+                direction, natural = line, dot > 0
+    else:
+        col.Add(obj)
+        c = obj.CenterSketchPoint.Geometry
+        end = tg.CreatePoint2d(c.X + want[0], c.Y + want[1])
+        direction = sk.SketchLines.AddByTwoPoints(obj.CenterSketchPoint, end)
+        direction.Construction = True
+        (sk.GeometricConstraints.AddHorizontal if abs(want[0]) > abs(want[1])
+         else sk.GeometricConstraints.AddVertical)(direction)
+    if direction is None:
+        raise RuntimeError("no edge parallel to the pattern direction")
+    before = {q.Name for q in ctx.comp.Parameters}
+    patterns = sk.RectangularPatterns
+    # a number is read in document units (millimeters: create_ipt sets them); a string spacing fails silently
+    definition = patterns.CreateDefinition(col, direction, count, natural, False, abs(step_mm))
+    patterns.Add(definition)
+    for q in ctx.comp.Parameters:  # name the two parameters Inventor created (count and pitch)
+        if q.Name in before:
+            continue
+        try:
+            if str(q.Expression).strip().endswith("ul"):
+                ctx.name_parameter(q, "%s_count%s" % (prefix, tag))
+            else:
+                ctx.name_parameter(q, "%s_pitch%s" % (prefix, tag))
+        except Exception:
+            pass
+
+
+def draw_sketch(sk, tg, P, sketch, arcs, ctx, prefix, tangents=True, patterns=True):
     """Draw all shapes and (when ``ctx`` is given) add the parametric constraints and dimensions."""
     origin = sk.AddByProjectingEntity(ctx.comp.WorkPoints.Item(1)) if ctx is not None else None
     items = []  # (item, shape dict)
-    for s in sp.sketch_shapes(sketch):
-        for it in draw_shape(sk, P, s, arcs, tangents):
-            items.append((it, s))
+    pending = []  # (item, count, step, horizontal): shapes drawn once and patterned afterwards
+    base_of = {}  # id(item) -> the shape dict it was drawn from
+    rings = []  # (item, count, cx, cy): circles drawn once and patterned around a center
+    for s in sketch:
+        ring = _circular_pattern_info(s) if (patterns and ctx is not None) else None
+        if ring is not None:
+            base = {k: v for k, v in s.items() if k != "pattern"}
+            for it in draw_shape(sk, P, base, arcs, tangents):
+                items.append((it, base))
+                rings.append((it,) + ring)
+            continue
+        info = _linear_pattern_1d(s) if (patterns and ctx is not None) else None
+        if info is not None:
+            base = {k: v for k, v in s.items() if k != "pattern"}
+            for it in draw_shape(sk, P, base, arcs, tangents):
+                items.append((it, base))
+                pending.append((it,) + info)
+                base_of[id(it)] = base
+            continue
+        for e in sp.expand_shape(s):
+            for it in draw_shape(sk, P, e, arcs, tangents):
+                items.append((it, e))
     if ctx is None:
         return
     try:
         g0 = origin.Geometry
         if abs(g0.X) > 1e-7 or abs(g0.Y) > 1e-7:
             raise RuntimeError("sketch origin is not at (0, 0)")
-        patterns = {}
+        patterns_state = {}
         for i, ((kind, obj, extra), s) in enumerate(items, 1):
             tag = str(i)
             pid, k = s.get("_pattern", (None, 0))
             pattern = None
             if pid is not None:
-                pattern = patterns.setdefault(pid, {"dx": s["_dx"], "dy": s["_dy"]})
+                pattern = patterns_state.setdefault(pid, {"dx": s["_dx"], "dy": s["_dy"]})
             if kind == "circle":
                 parametrize_circle(sk, tg, origin, ctx, obj, prefix, tag, pattern, k)
             elif kind == "rect":
                 parametrize_rectangle(sk, tg, origin, ctx, obj, prefix, tag, pattern, k)
             else:
                 parametrize_contour(sk, tg, origin, ctx, obj, prefix, tag, extra or ())
+        for n, (it, count, step, horizontal) in enumerate(pending, 1):
+            make_sketch_pattern(sk, tg, ctx, it, count, step, horizontal, prefix, str(n), P, base_of[id(it)])
+        for n, (it, count, cx, cy) in enumerate(rings, 1):
+            make_sketch_circular_pattern(sk, tg, ctx, it, count, cx, cy, prefix, str(n), P, origin)
     except Exception as e:
         print("  warning: sketch '%s' is not fully parametrized: %s" % (prefix, e))
 
@@ -634,17 +752,19 @@ def offset_plane(comp, tg, plane, offset, ctx, prefix):
     return wp
 
 
-SKETCH_SCHEMES = ((True, True), (True, False), (False, False))  # (arcs, tangent constraints)
+SKETCH_SCHEMES = ((True, True, True), (True, True, False), (True, False, False), (False, False, False))
+# (arcs, tangent constraints, sketch patterns): from the most parametric scheme to plain line segments
 
 
-def _profile_matches(prof, f):
-    """True when the profile has the area the spec says (a sketch that the solver deformed would not)."""
+def _profile_matches(prof, f, exact=True):
+    """True when the profile has the area the spec says (a sketch that the solver deformed would not). Sketches
+    that replace arcs by line segments are only approximately equal to the spec, so they get a looser limit."""
     try:
         area_mm2 = prof.RegionProperties.Area / (MM * MM)
     except Exception:
         return True  # cannot be checked
     expected = sp.sketch_geometry(f["sketch"]).area
-    return abs(area_mm2 - expected) <= max(0.02 * expected, 2.0)
+    return abs(area_mm2 - expected) <= max((0.01 if exact else 0.04) * expected, 1.0)
 
 
 def _extrude(comp, prof, f, op, directions, name):
@@ -687,19 +807,19 @@ def add_extrusion(comp, tg, f, ctx=None):
     op = OPS[f.get("operation", "new")]
 
     feat = None
-    for arcs, tangents in SKETCH_SCHEMES:
+    for arcs, tangents, patterns in SKETCH_SCHEMES:
         saved = (set(ctx.used), dict(ctx.diameters), dict(ctx.radii)) if ctx is not None else None
         sk = comp.Sketches.Add(wp)
         basis = sketch_basis(sk, tg)
         P = make_mapper(tg, basis, A, B)
         set_name(sk, "Sketch - " + name)
-        draw_sketch(sk, tg, P, f["sketch"], arcs, ctx, prefix, tangents)
+        draw_sketch(sk, tg, P, f["sketch"], arcs, ctx, prefix, tangents, patterns)
         reason = None
         try:
             prof = sk.Profiles.AddForSolid()
         except Exception as e:
             prof, reason = None, "no closed profile (%s)" % e
-        if prof is not None and not _profile_matches(prof, f):
+        if prof is not None and not _profile_matches(prof, f, exact=arcs):
             reason = "the sketch no longer matches the spec"
         if reason is None:
             sketch_sign = 1 if cross(basis[1], basis[2])[n] > 0 else -1
@@ -715,7 +835,8 @@ def add_extrusion(comp, tg, f, ctx=None):
             pass
         if ctx is not None:  # forget the parameter names of the discarded sketch
             ctx.used, ctx.diameters, ctx.radii = saved
-        print("  warning: %s in '%s' (arcs=%s, tangents=%s); trying a simpler sketch" % (reason, name, arcs, tangents))
+        print("  warning: %s in '%s' (arcs=%s, tangents=%s, patterns=%s); trying a simpler sketch"
+              % (reason, name, arcs, tangents, patterns))
     if feat is None:
         raise RuntimeError("Extrusion '%s' failed with every sketch scheme" % name)
     set_name(feat, name)
@@ -735,6 +856,8 @@ def add_hole(app, comp, tg, f, ctx=None):
     prefix = _slug(name)[:24]
     wp = offset_plane(comp, tg, plane, f.get("offset", 0), ctx, prefix)
     d, depth = f["d"] * MM, f["depth"] * MM
+    ring = f.get("pattern") if (f.get("pattern") or {}).get("type") == "circular" else None
+    positions = f["points"][:1] if ring else f["points"]  # a ring of holes: one hole, then a circular pattern
     holes = comp.Features.HoleFeatures
     before = part_volume(comp)
     feat = None
@@ -745,7 +868,7 @@ def add_hole(app, comp, tg, f, ctx=None):
         basis = sketch_basis(sk, tg)
         P = make_mapper(tg, basis, A, B)
         set_name(sk, "Sketch - " + name)
-        pts = [sk.SketchPoints.Add(P(x, y), True) for x, y in f["points"]]
+        pts = [sk.SketchPoints.Add(P(x, y), True) for x, y in positions]
         if ctx is not None and attempt == 0:
             try:
                 for i, p in enumerate(pts, 1):
@@ -802,7 +925,26 @@ def add_hole(app, comp, tg, f, ctx=None):
             ctx.name_parameter(feat.Definition.Extent.Distance, prefix + "_depth")
         except Exception:
             pass
+    if ring:
+        feat = _pattern_around_axis(app, comp, tg, feat, f, ring, ctx, prefix)
     return feat
+
+
+def _pattern_around_axis(app, comp, tg, feat, f, ring, ctx, prefix):
+    """Circular pattern of a feature around the axis through (cx, cy) normal to the feature's plane."""
+    n, A, B = sp.PLANE_AXES[f["plane"]]
+    coords = [0.0, 0.0, 0.0]
+    coords[A], coords[B], coords[n] = ring["cx"] * MM, ring["cy"] * MM, f.get("offset", 0) * MM
+    direction = [0.0, 0.0, 0.0]
+    direction[n] = 1.0
+    axis = comp.WorkAxes.AddFixed(tg.CreatePoint(*coords), tg.CreateUnitVector(*direction))
+    col = app.TransientObjects.CreateObjectCollection()
+    col.Add(feat)
+    pattern = comp.Features.CircularPatternFeatures.Add(col, axis, True, int(ring["n"]), 2 * math.pi, True,
+                                                        K_COMPUTE_IDENTICAL)
+    ctx.name_parameter(pattern.Count, prefix + "_count")
+    set_name(pattern, "%s pattern" % f.get("name", "Hole"))
+    return pattern
 
 
 def add_mirror(app, comp, tg, f, ctx, built):
@@ -816,6 +958,171 @@ def add_mirror(app, comp, tg, f, ctx, built):
     feat = comp.Features.MirrorFeatures.Add(col, wp, False, K_COMPUTE_IDENTICAL)
     set_name(feat, name)
     return feat
+
+
+# ----------------------------------------------------------------------------- gears
+K_CIRCULAR_PARAMETRIC = 98305  # CurveEquationTypeEnum.kParametric
+K_CARTESIAN = 98561            # CoordinateSystemTypeEnum.kCartesian
+# Inventor refuses to extrude an involute when its equation contains pi with more than 9 digits (a parameter
+# holding pi breaks it too), and equation curves only close exactly when every pi is the same literal.
+PI_LITERAL = "3.14159265"
+ROOT_OVERLAP_MM = 0.3  # the tooth reaches this far into the root cylinder so that the join is robust
+
+
+def gear_parameters(comp, ctx, prefix, f):
+    """Create the user parameters that define a spur gear and the derived radii. Return {key: parameter name}."""
+    ups = comp.Parameters.UserParameters
+    names = {}
+
+    def up(key, expression, unit):
+        name = ctx.unique("%s_%s" % (prefix, key))
+        names[key] = name
+        ups.AddByExpression(name, expression, unit)
+
+    n = names
+    up("module", "%g mm" % f["module"], "mm")
+    up("teeth", "%d" % int(f["teeth"]), "ul")
+    up("pressure_angle", "%g deg" % f["pressure_angle"], "deg")
+    up("addendum", "%g" % f.get("addendum", 1.0), "ul")
+    up("dedendum", "%g" % f.get("dedendum", 1.25), "ul")
+    up("width", "%g mm" % f["distance"], "mm")
+    up("phase", "%g deg" % f.get("phase", 0.0), "deg")
+    up("cx", "%g mm" % f["center"][0], "mm")
+    up("cy", "%g mm" % f["center"][1], "mm")
+    up("pi", PI_LITERAL, "ul")
+    up("pitch_r", "%s * %s / 2" % (n["module"], n["teeth"]), "mm")
+    up("base_r", "%s * cos(%s)" % (n["pitch_r"], n["pressure_angle"]), "mm")
+    up("tip_r", "%s + %s * %s" % (n["pitch_r"], n["addendum"], n["module"]), "mm")
+    up("root_r", "%s - %s * %s" % (n["pitch_r"], n["dedendum"], n["module"]), "mm")
+    up("root_inner_r", "%s - %g mm" % (n["root_r"], ROOT_OVERLAP_MM), "mm")
+    up("inv_a", "(tan(%s) - %s / 1 rad) * 180 / %s" % (n["pressure_angle"], n["pressure_angle"], n["pi"]), "ul")
+    up("psi", "90 / %s + %s" % (n["teeth"], n["inv_a"]), "ul")          # half tooth angle at the base circle (deg)
+    up("psi_a", "%s * 1 deg" % n["psi"], "deg")
+    up("roll_tip", "sqrt((%s / %s) ^ 2 - 1) * 180 / %s" % (n["tip_r"], n["base_r"], n["pi"]), "ul")  # deg
+    return names
+
+
+def gear_curve_expressions(n, mapping):
+    """Equation-curve expressions (x, y, t_min, t_max) of the tooth flanks and the root arc, in sketch space.
+
+    ``n`` maps parameter keys to names; ``mapping`` is the 2x2 integer matrix from gear space to sketch space.
+    Angles inside the equations are degrees (Inventor reads trig arguments of equation curves as degrees)."""
+    m00, m01, m10, m11 = mapping
+    base = "%s / 1 mm" % n["base_r"]
+    inv_x = "%s * (cos(t) + t * %s / 180 * sin(t))" % (base, PI_LITERAL)
+    inv_y = "%s * (sin(t) - t * %s / 180 * cos(t))" % (base, PI_LITERAL)
+    psi = n["psi_a"]
+    lower = ("(%s) * cos(%s) + (%s) * sin(%s)" % (inv_x, psi, inv_y, psi),
+             "-(%s) * sin(%s) + (%s) * cos(%s)" % (inv_x, psi, inv_y, psi))
+    upper = (lower[0], "(%s) * sin(%s) - (%s) * cos(%s)" % (inv_x, psi, inv_y, psi))
+    root = ("%s / 1 mm * cos(t)" % n["root_inner_r"], "%s / 1 mm * sin(t)" % n["root_inner_r"])
+
+    def place(xy):
+        x, y = xy
+        phase = n["phase"]
+        gx = "%s / 1 mm + (%s) * cos(%s) - (%s) * sin(%s)" % (n["cx"], x, phase, y, phase)
+        gy = "%s / 1 mm + (%s) * sin(%s) + (%s) * cos(%s)" % (n["cy"], x, phase, y, phase)
+        return ("(%d) * (%s) + (%d) * (%s)" % (m00, gx, m01, gy), "(%d) * (%s) + (%d) * (%s)" % (m10, gx, m11, gy))
+
+    return {"lower": place(lower) + ("0", n["roll_tip"]),
+            "upper": place(upper) + ("0", n["roll_tip"]),
+            "root": place(root) + ("-" + n["psi"], n["psi"])}
+
+
+def _sketch_matrix(tg, P):
+    """Integer 2x2 matrix [[m00, m01], [m10, m11]] that maps spec-space (x, y) to sketch space (cm / MM)."""
+    o, ex, ey = P(0, 0), P(1, 0), P(0, 1)
+    m = [round((ex.X - o.X) / MM), round((ey.X - o.X) / MM), round((ex.Y - o.Y) / MM), round((ey.Y - o.Y) / MM)]
+    if any(v not in (-1, 0, 1) for v in m):
+        raise RuntimeError("the gear plane is not axis aligned")
+    return m
+
+
+def add_gear(app, comp, tg, f, ctx):
+    """Spur gear: root cylinder + one involute tooth + a circular pattern, all driven by user parameters."""
+    name = f.get("name", "Spur gear")
+    prefix = _slug(name)[:24]
+    rr = gears.radii(f["module"], int(f["teeth"]), f["pressure_angle"], f.get("dedendum", 1.25),
+                     f.get("addendum", 1.0))
+    if rr["root"] >= rr["base"]:
+        raise RuntimeError("gears with the root circle outside the base circle are not supported")
+    plane = f["plane"]
+    n, A, B = sp.PLANE_AXES[plane]
+
+    # 1) root cylinder
+    cx, cy = f["center"]
+    body_spec = {"type": "extrusion", "name": name, "plane": plane, "operation": "new", "offset": f.get("offset", 0),
+                 "direction": f.get("direction", 1), "distance": f["distance"],
+                 "sketch": [{"shape": "circle", "x": cx, "y": cy, "d": 2 * rr["root"]}]}
+    body = add_extrusion(comp, tg, body_spec, ctx)
+    names = gear_parameters(comp, ctx, prefix, f)
+    _link(comp, "%s_D1" % prefix, "2 * %s" % names["root_r"])
+    _link(comp, "%s_x1" % prefix, names["cx"])
+    _link(comp, "%s_y1" % prefix, names["cy"])
+    _link(comp, "%s_depth" % prefix, names["width"])
+
+    # 2) one tooth, drawn with equation curves on the same plane
+    tooth = _draw_tooth(comp, tg, ctx, f, name, names, body.Definition.Profile.Parent.PlanarEntity, A, B, n)
+
+    # 3) circular pattern around the cylinder axis; the count follows the teeth parameter
+    axis = comp.WorkAxes.AddByRevolvedFace(body.SideFaces.Item(1))
+    col = app.TransientObjects.CreateObjectCollection()
+    col.Add(tooth)
+    pattern = comp.Features.CircularPatternFeatures.Add(col, axis, True, int(f["teeth"]), 2 * math.pi, True,
+                                                        K_COMPUTE_IDENTICAL)
+    try:
+        pattern.Count.Expression = names["teeth"]
+    except Exception:
+        pass
+    set_name(pattern, name + " teeth")
+    return pattern
+
+
+def _draw_tooth(comp, tg, ctx, f, name, names, plane_entity, A, B, n):
+    """Sketch one involute tooth with equation curves on ``plane_entity`` and join-extrude it by the face width."""
+    cx, cy = f["center"]
+    sk = comp.Sketches.Add(plane_entity)
+    basis = sketch_basis(sk, tg)
+    P = make_mapper(tg, basis, A, B)
+    set_name(sk, "Sketch - %s tooth" % name)
+    m00, m01, m10, m11 = _sketch_matrix(tg, P)
+    curves = {}
+    for key, (x, y, lo, hi) in gear_curve_expressions(names, (m00, m01, m10, m11)).items():
+        curves[key] = sk.SketchEquationCurves.Add(K_CIRCULAR_PARAMETRIC, K_CARTESIAN, x, y, lo, hi)
+    origin = sk.AddByProjectingEntity(comp.WorkPoints.Item(1))
+    center = sk.SketchPoints.Add(P(cx, cy), False)
+    for horizontal, value, key in ((True, cx, "cx"), (False, cy, "cy")):  # the arc center follows the parameters
+        if abs(value) > 1e-9:
+            _dimension(sk, tg, origin, center, horizontal, ctx, "%s_%s" % (_slug(name)[:24], key), names[key])
+        else:
+            (sk.GeometricConstraints.AddVerticalAlign if horizontal
+             else sk.GeometricConstraints.AddHorizontalAlign)(origin, center)
+    ccw = (m00 * m11 - m01 * m10) > 0
+    sk.SketchArcs.AddByCenterStartEndPoint(center, curves["lower"].EndSketchPoint, curves["upper"].EndSketchPoint, ccw)
+    sk.SketchLines.AddByTwoPoints(curves["lower"].StartSketchPoint, curves["root"].StartSketchPoint)
+    sk.SketchLines.AddByTwoPoints(curves["upper"].StartSketchPoint, curves["root"].EndSketchPoint)
+    prof = sk.Profiles.AddForSolid()
+    sketch_sign = 1 if cross(basis[1], basis[2])[n] > 0 else -1
+    directions = [K_POSITIVE, K_NEGATIVE] if f.get("direction", 1) * sketch_sign > 0 else [K_NEGATIVE, K_POSITIVE]
+    tooth = _extrude(comp, prof, {"distance": f["distance"]}, K_JOIN, directions, name + " tooth")
+    if tooth is None:
+        raise RuntimeError("could not extrude the tooth of '%s'" % name)
+    set_name(tooth, name + " tooth")
+    try:
+        tooth.Definition.Extent.Distance.Expression = names["width"]
+    except Exception:
+        pass
+    return tooth
+
+
+def _link(comp, parameter_name, expression):
+    """Drive an existing parameter by an expression (silently skipped when the parameter does not exist)."""
+    if expression is None:
+        return
+    try:
+        comp.Parameters.Item(parameter_name).Expression = expression
+    except Exception:
+        pass
 
 
 def add_legacy_extrusion(comp, tg, f):
@@ -940,6 +1247,8 @@ def create_ipt(spec, output, app=None, close=False):
                 add_legacy_extrusion(comp, tg, f)
         elif f["type"] == "hole":
             built[f.get("name")] = add_hole(app, comp, tg, f, ctx)
+        elif f["type"] == "gear":
+            built[f.get("name")] = add_gear(app, comp, tg, f, ctx)
         elif f["type"] == "mirror":
             add_mirror(app, comp, tg, f, ctx, built)
         elif f["type"] == "revolve":

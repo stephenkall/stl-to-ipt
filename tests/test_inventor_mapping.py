@@ -158,5 +158,5 @@ def test_profile_check_is_skipped_when_the_area_is_unavailable():
 
 
 def test_sketch_schemes_end_with_plain_lines():
-    assert inv.SKETCH_SCHEMES[0] == (True, True)      # arcs + tangent constraints first
-    assert inv.SKETCH_SCHEMES[-1] == (False, False)   # plain line segments last
+    assert inv.SKETCH_SCHEMES[0] == (True, True, True)      # arcs + tangents + patterns first
+    assert inv.SKETCH_SCHEMES[-1] == (False, False, False)  # plain line segments last

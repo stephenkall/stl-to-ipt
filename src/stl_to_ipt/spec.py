@@ -9,6 +9,8 @@ import math
 
 from shapely.geometry import LineString, Point, Polygon
 
+from . import gears
+
 SHAPES = {"rectangle", "circle", "slot", "polygon", "contour"}
 # Model system: plane name -> (normal axis, axis A, axis B) with 0=X, 1=Y, 2=Z
 PLANE_AXES = {"XY": (2, 0, 1), "XZ": (1, 0, 2), "YZ": (0, 1, 2)}
@@ -67,7 +69,7 @@ def shape_to_geometry(s):
     if shape == "slot":
         return LineString([(s["x1"], s["y1"]), (s["x2"], s["y2"])]).buffer(s["width"] / 2.0, 32)
     if shape == "contour":
-        p = Polygon(contour_points(s))
+        p = Polygon(contour_points(s, 96))  # fine arcs: 24 steps lose ~1% of the area of a large arc
         return p if p.is_valid else p.buffer(0)
     raise ValueError("unknown shape: %s" % shape)
 
@@ -269,15 +271,29 @@ def reflect_feature(f, axis, c):
     return f
 
 
+def gear_to_extrusion(f):
+    """Plain extrusion (polygon sketch) with the outline of a ``gear`` feature, for geometry evaluation."""
+    poly = gears.gear_polygon(f["module"], int(f["teeth"]), f["pressure_angle"], f.get("phase", 0.0),
+                              tuple(f["center"]), 12, f.get("dedendum", gears.DEDENDUM),
+                              f.get("addendum", gears.ADDENDUM))
+    pts = [[round(x, 4), round(y, 4)] for x, y in list(poly.exterior.coords)[:-1]]
+    return {"type": "extrusion", "name": f.get("name", "Gear"), "plane": f["plane"], "operation": "new",
+            "offset": f.get("offset", 0), "direction": f.get("direction", 1), "distance": f["distance"],
+            "sketch": [{"shape": "polygon", "points": pts}]}
+
+
 def expand_mirrors(spec):
-    """Spec without ``mirror`` features: each one is replaced by the mirrored copies of the features it lists.
-    Used wherever the geometry has to be evaluated (IoU, previews)."""
+    """Spec without ``mirror`` and ``gear`` features: mirrors are replaced by the mirrored copies of the features
+    they list and gears by an extrusion with their outline. Used wherever the geometry has to be evaluated (IoU,
+    previews)."""
     feats = spec["features"]
-    if not any(f["type"] == "mirror" for f in feats):
+    if not any(f["type"] in ("mirror", "gear") for f in feats):
         return spec
     by_name = {}
     out = []
     for f in feats:
+        if f["type"] == "gear":
+            f = gear_to_extrusion(f)
         if f["type"] != "mirror":
             by_name[f.get("name")] = f
             out.append(f)
@@ -345,6 +361,19 @@ def validate(spec):
                 errors.append("%s: head_d must be larger than d." % tag)
             if f.get("direction", 1) not in (1, -1):
                 errors.append("%s: direction must be 1 or -1." % tag)
+        elif t == "gear":
+            if f.get("plane") not in PLANES:
+                errors.append("%s: invalid plane." % tag)
+            if not f.get("module", 0) > 0:
+                errors.append("%s: module must be > 0." % tag)
+            if int(f.get("teeth", 0)) < 6:
+                errors.append("%s: a gear needs at least 6 teeth." % tag)
+            if not 5 <= f.get("pressure_angle", 0) <= 30:
+                errors.append("%s: pressure_angle must be between 5 and 30 degrees." % tag)
+            if not f.get("distance", 0) > 0:
+                errors.append("%s: distance (face width) must be > 0." % tag)
+            if len(f.get("center", [])) != 2:
+                errors.append("%s: center must be [x, y]." % tag)
         elif t == "mirror":
             if f.get("plane") not in PLANES:
                 errors.append("%s: invalid plane." % tag)

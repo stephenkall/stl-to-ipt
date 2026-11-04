@@ -142,6 +142,8 @@ def mirror_features(features, axis, c, extent):
         if i in drop or feats[i]["type"] not in ("extrusion", "hole"):
             continue
         f = feats[i]
+        if f.get("pattern"):  # patterned features are mirrored as a whole or not at all: leave them alone
+            continue
         n = sp.PLANE_AXES[f["plane"]][0]
         r = sp.reflect_feature(f, axis, c)
         if r is None:
@@ -158,7 +160,8 @@ def mirror_features(features, axis, c, extent):
                 continue
         # (a) the mirror image is another feature of the list
         partner = next((j for j in range(i + 1, len(feats)) if j not in drop
-                        and feats[j]["type"] == f["type"] and equivalent(r, feats[j], axis, extent)), None)
+                        and not feats[j].get("pattern") and feats[j]["type"] == f["type"]
+                        and equivalent(r, feats[j], axis, extent)), None)
         if partner is not None and not equivalent(f, r, axis, extent):
             drop.add(partner)
             mirrored.append(i)

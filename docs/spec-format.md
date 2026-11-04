@@ -42,6 +42,29 @@ An Inventor Hole feature placed on sketch points. `subtype` is `simple` (a blind
 `countersink` (needs `head_d` and `angle` in degrees) or `counterbore` (needs `head_d` and `head_depth`). `d` is the hole diameter, `depth` the
 drilled depth, `offset` the plane of the hole's face, and `points` a list of `[x, y]` centers.
 
+## Gear feature
+
+```json
+{"type": "gear", "name": "Spur gear", "plane": "XY", "offset": 0, "direction": 1, "distance": 20,
+ "module": 3, "teeth": 10, "pressure_angle": 20, "addendum": 1.0, "dedendum": 1.2, "phase": 0,
+ "center": [18, 17.37]}
+```
+
+A standard involute spur gear: `module` (mm), `teeth`, `pressure_angle` (degrees), `addendum` and `dedendum` (in
+modules), `phase` (angle of tooth 0 in degrees), `center` in plane coordinates and `distance` (face width). The
+builder creates a root cylinder, one tooth and a circular pattern, all driven by user parameters. Outlines that are
+not a standard involute form (root fillets, profile shift) stay ordinary contours.
+
+## Patterns
+
+* A `rectangle` or `circle` with a `pattern` of type `linear` (one direction, three or more copies) is drawn once and
+  patterned in the sketch; the count and the pitch are parameters.
+* A `circle` with `{"type": "circular", "n": 6, "cx": 40, "cy": 40}` is drawn once and patterned around
+  `(cx, cy)`.
+* A `hole` feature with the same `pattern` annotation keeps the full list of `points` (the geometry code uses
+  them) while the builder places only the first hole and adds a circular pattern feature around the axis through
+  `(cx, cy)`.
+
 ## Mirror feature
 
 ```json
