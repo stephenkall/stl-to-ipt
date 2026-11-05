@@ -122,6 +122,19 @@ just outside the hole (the part is prismatic there), which also restores a crown
 fits, the hull of the section piece is used. Steps that only imitated a hole are then removed by the pruning;
 `Circular recess` cuts are never pruned.
 
+## Tilted (radial) holes
+
+A curved part (`Pedal_Heel`, `Pedal_Main_Body`) has screw holes drilled normal to the curve, at an angle about the
+extrusion axis. Along a slice axis they show up as short tracks of round rings whose center drifts steadily
+(`_drifting_tracks`: at least three slices, the drift along the third axis is linear, the other coordinate constant).
+`find_tilted_holes` takes each distinct drift angle, turns the mesh about the extrusion axis until that direction lines
+up with the slice axis, runs the ordinary hole detection (`find_blind_holes`, so countersinks, counterbores and the
+cavity rule work as before) and carries the holes back with the inverse transform. Only holes that lie on an observed
+drift are kept: in the turned mesh the axis-aligned holes also look like drifting tracks. `hole_fill` hands the
+slicer a strip along the axis instead of the straight corridor, so the notches these holes leave in a section do not
+turn into recesses or pads of the base profile. A tilted hole is its own feature (`tilt`), since a work plane in
+Inventor carries one sketch point.
+
 ## Rounded edges
 
 A fillet along a stadium or any curved outline shows up in the silhouettes only along the straight parts, so the
@@ -149,6 +162,7 @@ one while the IoU stays within 0.002. Inventor refuses the fillet when holes sit
   has a dimension.
 - Plain through holes stay as sketch circles instead of Inventor Hole features. Blind holes across the extrusion
   axis are detected, but blind holes along it still appear as recesses.
+- Tilted holes are found only when the tilt is about the extrusion axis, and they are not mirrored.
 - Only one mirror plane is used per part, and the base profile is always drawn complete.
 - Tilted parts are rotated in the mesh instead of using an inclined work plane.
 - Linear patterns are several shapes inside one sketch, not a rectangular-pattern feature.

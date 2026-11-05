@@ -47,6 +47,20 @@ countersunk ones and holes that run from an outer face into a cavity. A counters
 cylindrical pocket is a `Circular recess` (an `extrusion` cut with a circle, from the pocket floor out through the
 open side) followed by a `countersink` hole whose `offset` is that floor.
 
+### Tilted holes
+
+```json
+{"type": "hole", "name": "Radial hole", "subtype": "countersink", "plane": "XZ", "offset": 11, "direction": 1,
+ "points": [[96, 5]], "d": 3, "depth": 8.6, "head_d": 7.1, "angle": 90, "tilt": {"axis": "Z", "angle": 30}}
+```
+
+`tilt` turns the drilling direction about a global axis that lies in the hole's plane (here `Z`), right-handed, by
+`angle` degrees: the plane normal `direction * Y` becomes `(-sin 30, cos 30, 0)`. The point is where the axis meets
+the plane at `offset`, and `offset`, `head_d` and `depth` are measured from there along the tilted axis. A tilted
+hole takes exactly one point and is never mirrored. Inventor builds it on a work plane turned about a construction
+line through the point; the angle is the parameter `<name>_tilt`. The converter writes these for radial holes of
+curved parts (`Pedal_Heel`, `Pedal_Main_Body`).
+
 ## Gear feature
 
 ```json

@@ -284,12 +284,29 @@ def _reflect_shape(s, axis_index, c):
     return s
 
 
+def hole_direction(f):
+    """Unit vector (global X, Y, Z) along which a ``hole`` feature is drilled: the plane normal times ``direction``,
+    turned by ``tilt`` (``{"axis": "Z", "angle": 30}``: degrees, right-handed about that global axis)."""
+    n = PLANE_AXES[f["plane"]][0]
+    u = np.zeros(3)
+    u[n] = f.get("direction", 1)
+    tilt = f.get("tilt")
+    if tilt:
+        k = np.zeros(3)
+        k["XYZ".index(tilt["axis"])] = 1.0
+        th = math.radians(tilt["angle"])
+        u = u * math.cos(th) + np.cross(k, u) * math.sin(th) + k * np.dot(k, u) * (1 - math.cos(th))
+    return u
+
+
 def reflect_feature(f, axis, c):
     """Mirror image of feature ``f`` about the plane whose normal is global ``axis`` at coordinate ``c``.
     Return None when the feature cannot be reflected."""
     f = copy.deepcopy(f)
     n, A, B = PLANE_AXES[f["plane"]]
     if f["type"] == "hole":
+        if f.get("tilt"):  # a tilted hole is not mirrored: it stays a feature of its own
+            return None
         if axis == n:
             f["offset"] = 2 * c - f.get("offset", 0)
             f["direction"] = -f.get("direction", 1)
@@ -401,6 +418,11 @@ def validate(spec):
                 errors.append("%s: head_d must be larger than d." % tag)
             if f.get("direction", 1) not in (1, -1):
                 errors.append("%s: direction must be 1 or -1." % tag)
+            tilt = f.get("tilt")
+            if tilt is not None:
+                n_axis = PLANE_AXES[f["plane"]][0] if f.get("plane") in PLANE_AXES else None
+                if tilt.get("axis") not in ("X", "Y", "Z") or not isinstance(tilt.get("angle"), (int, float))                         or "XYZ".index(tilt.get("axis", "Z")) == n_axis:
+                    errors.append("%s: tilt needs an axis in the hole's plane and an angle in degrees." % tag)
         elif t == "gear":
             if f.get("plane") not in PLANES:
                 errors.append("%s: invalid plane." % tag)

@@ -322,11 +322,51 @@
     "Blind hole",
     "Blind hole 2"
    ]
+  },
+  {
+   "type": "hole",
+   "name": "Blind hole 3",
+   "subtype": "simple",
+   "plane": "XY",
+   "offset": 2.15,
+   "direction": 1,
+   "points": [
+    [
+     46.2,
+     95.7
+    ]
+   ],
+   "d": 3.0,
+   "depth": 8.0,
+   "tilt": {
+    "axis": "X",
+    "angle": -20.0
+   }
+  },
+  {
+   "type": "hole",
+   "name": "Blind hole 4",
+   "subtype": "simple",
+   "plane": "XY",
+   "offset": 2.15,
+   "direction": 1,
+   "points": [
+    [
+     23.8,
+     95.7
+    ]
+   ],
+   "d": 3.0,
+   "depth": 8.0,
+   "tilt": {
+    "axis": "X",
+    "angle": -20.0
+   }
   }
  ],
  "notes": {
   "part": "Pedal_Base_Main_Body",
-  "estimated_iou": 0.9846,
+  "estimated_iou": 0.9849,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    -35.0,
@@ -380,6 +420,16 @@
     "feature": 7,
     "shape": null,
     "d": 3.1
+   },
+   {
+    "feature": 8,
+    "shape": null,
+    "d": 3.0
+   },
+   {
+    "feature": 9,
+    "shape": null,
+    "d": 3.0
    }
   ],
   "mirror": {
@@ -388,6 +438,7 @@
    "removed_duplicates": 5
   },
   "gear": null,
-  "iou": 0.9838
+  "fillet": null,
+  "iou": 0.9844
  }
 }
