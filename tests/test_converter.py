@@ -306,3 +306,17 @@ def test_hole_fill_reaches_the_wall_of_a_tube_off_the_axis_of_a_wide_countersink
     fill = cv.hole_fill(hole, 1, 0, 5.0, drilled, refs=[ring])
     assert drilled.union(fill).area == pytest.approx(ring.area, abs=0.02)
     assert not fill.intersects(Point(7.5, 7.5).buffer(4.9))
+
+
+def test_countersunk_hole_that_opens_into_a_cavity_runs_on_into_it():
+    # outside at the top (high), a cone then a neck, and a cavity below: the neck must not stop at the wall
+    step = 0.5
+    pos = [step * (i + 0.5) for i in range(16)]
+    plate = box(0, 0, 40, 40)
+    cone = [plate.difference(Point(20, 20).buffer(r, 32)) for r in (2.5, 2.2, 1.9, 1.6)]
+    neck = plate.difference(Point(20, 20).buffer(1.5, 32))
+    cavity = plate.difference(box(15, 15, 25, 25))
+    regs = [plate] * 4 + [cavity] * 3 + [neck] * 3 + cone[::-1] + [Polygon()] * 2
+    holes = cv._blind_holes_from_slices(pos, regs, step, plate, np.array([0.0, 8.0]), lambda c, r, high: 8.0)
+    sink = [h for h in holes if h["subtype"] == "countersink"]
+    assert len(sink) == 1 and sink[0]["overshoot"] == pytest.approx(1.0)

@@ -38,7 +38,7 @@
     ]
    ],
    "d": 3.0,
-   "depth": 2.5,
+   "depth": 3.0,
    "head_d": 8.0,
    "angle": 100.0
   }
@@ -78,6 +78,6 @@
   "mirror": null,
   "gear": null,
   "fillet": null,
-  "iou": 0.9944
+  "iou": 0.995
  }
 }

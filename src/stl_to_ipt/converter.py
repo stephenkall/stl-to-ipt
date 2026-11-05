@@ -1077,6 +1077,12 @@ def _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, fa
                                       vertex_levels)
                 if not any(h["subtype"] == "recess" for h in found):
                     found = [_reach_surface(h, t["c"], face_level) for h in found]
+                # A narrow end that opens into a cavity: the hole runs on into it, otherwise a thin lens of the wall
+                # stays at the edge of the hole (the bore of a tube is deeper on the axis than at the hole's edge).
+                near = i1 + 2 if wide_is_low else i0 - 2
+                if 0 <= near < len(regs) and not regs[near].contains(center):
+                    found = [dict(h, depth=round(h["depth"] + 2 * step, 3), overshoot=round(2 * step, 3))
+                             if h["subtype"] != "recess" else h for h in found]
                 holes += found
             continue
         if len(t["idx"]) < 3 or np.ptp(d) > 0.3 or np.median(d) < 0.8 or t["loose"]:
