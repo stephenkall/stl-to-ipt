@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/stephenkall/stl-to-ipt/compare/v0.5.1...v0.5.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* drill countersunk holes on into the cavity they open into ([39d1599](https://github.com/stephenkall/stl-to-ipt/commit/39d159994d97ba3b8998afc9b8d24688bed7adb2))
+* drill countersunk holes on into the cavity they open into ([cfd0ca5](https://github.com/stephenkall/stl-to-ipt/commit/cfd0ca5d978f80cb425bcff24fbf4d3980565fd2))
+
 ## [0.5.1](https://github.com/stephenkall/stl-to-ipt/compare/v0.5.0...v0.5.1) (2026-11-05)
 
 
