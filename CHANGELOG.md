@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.5.2...v0.6.0) (2026-11-05)
+
+
+### Features
+
+* detect and build holes drilled at an angle about the extrusion axis ([0c4ef5c](https://github.com/stephenkall/stl-to-ipt/commit/0c4ef5cc49413da1148d708af5a6cc407dc6f146))
+* detect and build holes drilled at an angle about the extrusion axis ([8e2e98c](https://github.com/stephenkall/stl-to-ipt/commit/8e2e98cf031c48b02c4d66afce49c816d25035f0))
+
 ## [0.5.2](https://github.com/stephenkall/stl-to-ipt/compare/v0.5.1...v0.5.2) (2026-11-05)
 
 
