@@ -17,30 +17,10 @@
      "d": 15.0
     },
     {
-     "shape": "contour",
-     "start": [
-      12.27,
-      6.0
-     ],
-     "segments": [
-      [
-       "L",
-       12.5,
-       6.0
-      ],
-      [
-       "L",
-       12.5,
-       7.5
-      ],
-      [
-       "A",
-       2.558,
-       8.259,
-       12.27,
-       6.0
-      ]
-     ]
+     "shape": "circle",
+     "x": 7.5,
+     "y": 7.5,
+     "d": 10.0
     }
    ]
   },
@@ -65,7 +45,7 @@
  ],
  "notes": {
   "part": "Brake_Axis_Pin_Cap",
-  "estimated_iou": 0.9944,
+  "estimated_iou": 0.9948,
   "origin": "minimum corner of the mesh bounding box at the origin",
   "original_min": [
    70.0,
@@ -85,6 +65,11 @@
     "d": 15.0
    },
    {
+    "feature": 0,
+    "shape": 1,
+    "d": 10.0
+   },
+   {
     "feature": 1,
     "shape": null,
     "d": 3.01
@@ -93,6 +78,6 @@
   "mirror": null,
   "gear": null,
   "fillet": null,
-  "iou": 0.9937
+  "iou": 0.9944
  }
 }
