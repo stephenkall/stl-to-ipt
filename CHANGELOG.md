@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/stephenkall/stl-to-ipt/compare/v0.5.0...v0.5.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* give back the wall of a tube behind a wide countersink ([5ac63d6](https://github.com/stephenkall/stl-to-ipt/commit/5ac63d68d32ef9f9b3f2b89a0cb8067568627ae2))
+* give back the wall of a tube behind a wide countersink ([cd7708b](https://github.com/stephenkall/stl-to-ipt/commit/cd7708b157a71df808631fce1df53092f8fdf73f))
+
 ## [0.5.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.4.1...v0.5.0) (2026-11-04)
 
 
