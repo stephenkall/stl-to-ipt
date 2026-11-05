@@ -294,3 +294,15 @@ def test_hole_fill_restores_a_crown_the_hole_cut_off_when_a_reference_section_is
     # a reference that does not contain the section (a different run of the part) is not used
     elsewhere = box(100, 100, 120, 120)
     assert cv.hole_fill(hole, 1, 0, 5.0, notched, refs=[elsewhere]).area == pytest.approx(by_hull.area, abs=0.01)
+
+
+def test_hole_fill_reaches_the_wall_of_a_tube_off_the_axis_of_a_wide_countersink():
+    # off its axis the wall of a tube lies deeper than the drilled depth on the axis: the head of the hole is
+    # wide, so its corridor must run on until the reference section stops it
+    ring = Point(7.5, 7.5).buffer(7.5, 128).difference(Point(7.5, 7.5).buffer(5.0, 128))
+    hole = dict(x=5.0, y=7.5, d=3.0, face=15.0, direction=-1, depth=2.5, subtype="countersink", head_d=8.0,
+                angle=100.0)
+    drilled = ring.difference(box(10.0, 3.5, 15.5, 11.5))
+    fill = cv.hole_fill(hole, 1, 0, 5.0, drilled, refs=[ring])
+    assert drilled.union(fill).area == pytest.approx(ring.area, abs=0.02)
+    assert not fill.intersects(Point(7.5, 7.5).buffer(4.9))

@@ -832,20 +832,27 @@ def hole_fill(hole, a, n, s, region, refs=()):
     # opening that is slightly oval where it breaks through a curved face.
     radius_max = max(hole["d"], hole.get("head_d", 0.0)) / 2.0
     depth = hole["depth"] - hole.get("overshoot", 0.0)
-    ts = np.linspace(0.0, depth, 3)
-    rows = [(t, math.sqrt(radius_max ** 2 - delta ** 2)) for t in ts if radius_max > abs(delta) + 1e-6]
-    if len(rows) < 2:
-        return None
-    along = [hole["face"] + hole["direction"] * t for t, _ in rows]
-    upper = [(c, center[w] + half) for c, (_, half) in zip(along, rows)]
-    lower = [(c, center[w] - half) for c, (_, half) in zip(along, rows)][::-1]
-    ring = [{a: p[0], w: p[1]} for p in upper + lower]
-    poly = Polygon([(q[axes_n[0]], q[axes_n[1]]) for q in ring]).buffer(0)
-    if poly.is_empty:
+
+    def corridor(length):
+        ts = np.linspace(0.0, length, 3)
+        rows = [(t, math.sqrt(radius_max ** 2 - delta ** 2)) for t in ts if radius_max > abs(delta) + 1e-6]
+        if len(rows) < 2:
+            return None
+        along = [hole["face"] + hole["direction"] * t for t, _ in rows]
+        upper = [(c, center[w] + half) for c, (_, half) in zip(along, rows)]
+        lower = [(c, center[w] - half) for c, (_, half) in zip(along, rows)][::-1]
+        ring = [{a: p[0], w: p[1]} for p in upper + lower]
+        return Polygon([(q[axes_n[0]], q[axes_n[1]]) for q in ring]).buffer(0)
+
+    poly = corridor(depth)
+    if poly is None or poly.is_empty:
         return None
     for ref in refs:
         if ref is not None and region.difference(ref.buffer(0.3)).area <= 0.01 * max(region.area, 1e-9):
-            return poly.intersection(ref)
+            # Off the axis of a hole that breaks through a curved wall the wall is deeper than on the axis (a hole
+            # through a tube): the reference section limits the corridor, so it may run on past the drilled depth.
+            deep = corridor(depth + radius_max)
+            return (deep if deep is not None else poly).intersection(ref)
     pieces = [g for g in getattr(region, "geoms", [region]) if g.geom_type == "Polygon" and not g.is_empty]
     if not pieces:
         return None
