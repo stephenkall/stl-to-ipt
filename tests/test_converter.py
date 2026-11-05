@@ -320,3 +320,39 @@ def test_countersunk_hole_that_opens_into_a_cavity_runs_on_into_it():
     holes = cv._blind_holes_from_slices(pos, regs, step, plate, np.array([0.0, 8.0]), lambda c, r, high: 8.0)
     sink = [h for h in holes if h["subtype"] == "countersink"]
     assert len(sink) == 1 and sink[0]["overshoot"] == pytest.approx(1.0)
+
+
+def test_tilted_hole_removes_material_along_its_own_axis():
+    f = {"type": "hole", "plane": "XZ", "offset": 10.0, "direction": 1, "points": [[20.0, 5.0]], "d": 3.0,
+         "depth": 8.0, "subtype": "simple", "tilt": {"axis": "Z", "angle": 30.0}}
+    u = sp.hole_direction(f)
+    assert np.allclose(u, [-0.5, math.sqrt(3) / 2, 0.0], atol=1e-9)
+    on_axis = np.array([[20.0, 10.0, 5.0]]) + 4.0 * u
+    off_axis = np.array([[20.0, 10.0, 5.0]]) + 4.0 * u + np.array([2.0, 0.0, 0.0])
+    beyond = np.array([[20.0, 10.0, 5.0]]) + 9.0 * u
+    pts = np.vstack([on_axis, off_axis, beyond])
+    assert list(cv.hole_removed_mask(f, pts[:, 0], pts[:, 1], pts[:, 2])) == [True, False, False]
+
+
+def test_tilted_hole_validation_and_mirroring():
+    base = {"type": "extrusion", "plane": "XY", "operation": "new", "distance": 5,
+            "sketch": [{"shape": "rectangle", "x": 0, "y": 0, "width": 20, "height": 20}]}
+    hole = {"type": "hole", "plane": "XZ", "offset": 0, "direction": 1, "points": [[5, 2]], "d": 3, "depth": 6,
+            "tilt": {"axis": "Z", "angle": 30}}
+    assert sp.validate({"system": "model", "features": [base, hole]})[0] == []
+    bad = dict(hole, tilt={"axis": "Y", "angle": 30})  # the tilt axis must lie in the hole's plane
+    assert sp.validate({"system": "model", "features": [base, bad]})[0]
+    assert sp.reflect_feature(hole, 0, 10.0) is None  # a tilted hole is never mirrored
+
+
+def test_hole_fill_of_a_tilted_hole_is_a_strip_along_its_axis():
+    wall = box(0, 0, 40, 20)  # section of a wall in the (X, Y) plane, hole drilled at 30 degrees from Y
+    hole = dict(x=20.0, y=2.0, d=3.0, face=0.0, direction=1, depth=10.0, subtype="simple", overshoot=0.0,
+                tilt=30.0, tilt_axis="Z")
+    fill = cv.hole_fill(hole, 1, 2, 2.0, wall.difference(box(100, 100, 101, 101)), refs=[wall])
+    # 2.0 is the hole's own z (center): the strip is 3 mm wide and runs on 1.5 mm past the drilled depth (the
+    # reference section limits it), tilted towards -X
+    assert fill.area == pytest.approx(3.0 * 11.5, rel=0.05)
+    minx, miny, maxx, maxy = fill.bounds
+    assert maxx - minx == pytest.approx(11.5 * 0.5 + 3 * math.cos(math.radians(30)), abs=0.3)
+    assert cv.hole_fill(hole, 1, 2, 5.0, wall, refs=[wall]) is None  # beyond the radius of the hole

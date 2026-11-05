@@ -587,11 +587,20 @@ def hole_removed_mask(f, X, Y, Z):
     """Mask of the material removed by a ``hole`` feature (cylinder, countersink or counterbore)."""
     n, A, B = sp.PLANE_AXES[f["plane"]]
     co = [X, Y, Z]
-    t = (co[n] - f["offset"]) * f["direction"]
     r = f["d"] / 2.0
     removed = np.zeros(np.broadcast(X, Y, Z).shape, bool)
+    tilted = bool(f.get("tilt"))
+    u = sp.hole_direction(f) if tilted else None
     for px, py in f["points"]:
-        rr = np.hypot(co[A] - px, co[B] - py)
+        if tilted:  # the axis runs through the point on the plane, along u
+            origin = [0.0, 0.0, 0.0]
+            origin[n], origin[A], origin[B] = f["offset"], px, py
+            v = [co[i] - origin[i] for i in range(3)]
+            t = v[0] * u[0] + v[1] * u[1] + v[2] * u[2]
+            rr = np.sqrt(np.maximum(v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - t ** 2, 0.0))
+        else:
+            t = (co[n] - f["offset"]) * f["direction"]
+            rr = np.hypot(co[A] - px, co[B] - py)
         if f["subtype"] == "countersink":
             tan_half = math.tan(math.radians(f["angle"] / 2.0))
             head_h = (f["head_d"] / 2.0 - r) / tan_half
@@ -832,8 +841,21 @@ def hole_fill(hole, a, n, s, region, refs=()):
     # opening that is slightly oval where it breaks through a curved face.
     radius_max = max(hole["d"], hole.get("head_d", 0.0)) / 2.0
     depth = hole["depth"] - hole.get("overshoot", 0.0)
+    tilted = bool(hole.get("tilt"))
+    if tilted:  # the axis lies in the slice plane, turned about axis n: the corridor is a strip along it
+        u = sp.hole_direction(dict(hole, plane=PLANE_NAME[a], tilt={"axis": hole["tilt_axis"], "angle": hole["tilt"]}))
+        start = {a: hole["face"], w: center[w]}
+        half_width = math.sqrt(radius_max ** 2 - delta ** 2) if radius_max > abs(delta) + 1e-6 else 0.0
 
     def corridor(length):
+        if tilted:
+            if half_width <= 0.0:
+                return None
+            side = {a: -u[w] * half_width, w: u[a] * half_width}
+            end = {a: start[a] + u[a] * length, w: start[w] + u[w] * length}
+            ring = [{k: start[k] + side[k] for k in (a, w)}, {k: end[k] + side[k] for k in (a, w)},
+                    {k: end[k] - side[k] for k in (a, w)}, {k: start[k] - side[k] for k in (a, w)}]
+            return Polygon([(q[axes_n[0]], q[axes_n[1]]) for q in ring]).buffer(0)
         ts = np.linspace(0.0, length, 3)
         rows = [(t, math.sqrt(radius_max ** 2 - delta ** 2)) for t in ts if radius_max > abs(delta) + 1e-6]
         if len(rows) < 2:
@@ -856,6 +878,11 @@ def hole_fill(hole, a, n, s, region, refs=()):
     pieces = [g for g in getattr(region, "geoms", [region]) if g.geom_type == "Polygon" and not g.is_empty]
     if not pieces:
         return None
+    if tilted:  # a hole through a wall splits the section: the hull of everything the corridor touches
+        touched = [g for g in pieces if g.distance(poly) < 0.3]
+        if not touched:
+            return None
+        return poly.intersection(shapely.union_all(touched).convex_hull)
     best = max(pieces, key=lambda g: g.convex_hull.intersection(poly).area)
     return poly.intersection(best.convex_hull)
 
@@ -969,6 +996,8 @@ def hole_features(holes, plane):
         for k in ("head_d", "angle", "head_depth"):
             if k in f0:
                 feat[k] = f0[k]
+        if f0.get("tilt"):
+            feat["tilt"] = {"axis": f0["tilt_axis"], "angle": f0["tilt"]}
         ring = patterns.circular_pattern(feat["points"])
         if ring:  # a ring of identical holes: the spec says so, the builder places one hole and patterns it
             feat["pattern"] = ring
@@ -1001,6 +1030,120 @@ def find_blind_holes(m, ext, a, silhouette_geom=None):
         return float(v[near, a].max() if high else v[near, a].min())
 
     return _blind_holes_from_slices(pos, regs, step, silhouette_geom, vertex_levels, face_level)
+
+
+TILT_MIN_SLOPE = 0.12   # a track whose center moves less than this per mm of depth belongs to an axis-aligned hole
+TILT_MAX_SLOPE = 1.8
+
+
+def _drifting_tracks(m, ext, a, n):
+    """Round-ish inner rings that follow each other along axis ``a`` while their center drifts steadily along the
+    third axis: holes drilled at an angle about axis ``n``. Return ``[(slope, positions, centers, n_coordinate)]``
+    where ``slope`` is the drift of the center per mm along ``a``."""
+    length = ext[a]
+    K = int(min(160, max(50, length / 0.25)))
+    step = length / K
+    _, A, B = sp.PLANE_AXES[PLANE_NAME[a]]
+    k_n = 0 if A == n else 1  # which ring coordinate runs along axis n
+    tracks = []
+    for i in range(K):
+        z = step * (i + 0.5)
+        reg = _clean(section(m, a, z))
+        for cx, cy, d, _ in _rings_loose(reg):
+            c = (cx, cy)
+            for t in tracks:
+                if t["last"] == i - 1 and math.hypot(t["c"][0] - c[0], t["c"][1] - c[1]) < 0.8:
+                    t["pos"].append(z)
+                    t["ctr"].append(c)
+                    t["c"], t["last"] = c, i
+                    break
+            else:
+                tracks.append({"pos": [z], "ctr": [c], "c": c, "last": i})
+    out = []
+    for t in tracks:
+        if len(t["pos"]) < 3:
+            continue
+        pos = np.array(t["pos"])
+        ctr = np.array(t["ctr"])
+        along_n, other = ctr[:, k_n], ctr[:, 1 - k_n]
+        if np.ptp(along_n) > 0.4:  # the axis has to lie in the plane normal to ``n``
+            continue
+        slope, icpt = np.polyfit(pos, other, 1)
+        resid = float(np.abs(other - (slope * pos + icpt)).max())
+        if TILT_MIN_SLOPE <= abs(slope) <= TILT_MAX_SLOPE and resid < 0.25:
+            out.append((float(slope), pos, other, float(np.mean(along_n))))
+    return out
+
+
+def find_tilted_holes(m, ext, n):
+    """Round holes drilled at an angle about the extrusion axis ``n`` (radial holes of a curved part).
+
+    Their slices along an axis show rings whose center drifts. For each direction found, the mesh is turned about
+    ``n`` so that the hole axis lines up with a slice axis, the ordinary hole detection runs on it and the holes
+    are carried back. A hole only counts when it lies on the drift that was observed. Returns hole dicts with a
+    ``tilt`` (degrees, right-handed about ``n``) and the face point in the plane of the slice axis."""
+    import trimesh
+    found = []
+    e_n = np.zeros(3)
+    e_n[n] = 1.0
+    for a in [x for x in (0, 1, 2) if x != n]:
+        o = next(x for x in (0, 1, 2) if x not in (a, n))
+        _, A, B = sp.PLANE_AXES[PLANE_NAME[a]]
+        observed = _drifting_tracks(m, ext, a, n)
+        angles = []
+        for slope, *_ in observed:
+            ang = math.degrees(math.atan(slope))
+            if not any(abs(ang - q) < 1.5 for q in angles):
+                angles.append(ang)
+        for ang in angles:
+            vec = np.zeros(3)
+            vec[a], vec[o] = 1.0, math.tan(math.radians(ang))
+            vec /= np.linalg.norm(vec)
+            turn = None
+            for alpha in (-ang, ang):  # the sign that brings the drift direction onto axis ``a``
+                R = trimesh.transformations.rotation_matrix(math.radians(alpha), e_n, m.centroid)
+                if abs((R[:3, :3] @ vec)[o]) < 1e-6:
+                    turn = R
+                    break
+            if turn is None:
+                continue
+            turned = m.copy()
+            turned.apply_transform(turn)
+            shift = np.eye(4)
+            shift[:3, 3] = -turned.bounds[0]
+            turned.apply_transform(shift)
+            T = shift @ turn
+            Tinv = np.linalg.inv(T)
+            ext2 = [round(float(e), 3) for e in turned.extents]
+            for h in find_blind_holes(turned, ext2, a):
+                p_rot = np.zeros(4)
+                p_rot[A], p_rot[B], p_rot[a], p_rot[3] = h["x"], h["y"], h["face"], 1.0
+                P0 = (Tinv @ p_rot)[:3]
+                base = np.zeros(3)
+                base[a] = h["direction"]
+                u = Tinv[:3, :3] @ base
+                if abs(u[n]) > 0.05:
+                    continue
+                on_track = False
+                for slope, pos, other, c_n in observed:
+                    if abs(c_n - P0[n]) > 0.8 or abs(math.degrees(math.atan(slope)) - ang) > 1.5:
+                        continue
+                    mid = len(pos) // 2  # distance of the observed ring from the hole's axis, in the plane
+                    q = np.zeros(3)
+                    q[a], q[o] = pos[mid] - P0[a], other[mid] - P0[o]
+                    q -= np.dot(q, u) * u
+                    if np.linalg.norm(q) < 0.8:
+                        on_track = True
+                        break
+                if not on_track:
+                    continue
+                tilt = math.degrees(math.atan2(float(np.dot(np.cross(base, u), e_n)), float(np.dot(base, u))))
+                hole = {k: v for k, v in h.items()}
+                hole.update(x=round(float(P0[A]), 3), y=round(float(P0[B]), 3), face=round(float(P0[a]), 3),
+                            direction=int(h["direction"]) if abs(u[a]) < 1e-9 else int(np.sign(u[a])) or 1,
+                            tilt=round(tilt, 1), tilt_axis=AXIS_NAME[n], axis=a)
+                found.append(hole)
+    return found
 
 
 def _rings_loose(reg):
@@ -1500,6 +1643,9 @@ def _convert_mesh(m, tol, part):
         transverse = find_blind_holes(m, ext, a)
         blind_features += hole_features(transverse, PLANE_NAME[a])
         fills += [(a, h) for h in transverse]  # the slicer sees the part as if these holes were not drilled
+    for h in find_tilted_holes(m, ext, n):  # radial holes of a curved part: drilled at an angle about the axis
+        blind_features += hole_features([h], PLANE_NAME[h["axis"]])
+        fills.append((h["axis"], h))
     results = []
     for merge in (False, True):
         feats, n_runs = plan(m, ext, n, tol, merge, fills)

@@ -63,7 +63,7 @@ def cylinders(part, spec):
     raw = _raw_lookup(spec)
     out = []
     for i, f in _expanded(spec):
-        if f["type"] not in ("extrusion", "hole"):
+        if f["type"] not in ("extrusion", "hole") or f.get("tilt"):  # a tilted hole has no axis-aligned fit
             continue
         n, A, B = sp.PLANE_AXES[f["plane"]]
         off = f.get("offset", 0)

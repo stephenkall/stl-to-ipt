@@ -848,8 +848,125 @@ def add_extrusion(comp, tg, f, ctx=None):
     return feat
 
 
+def _tilted_plane(app, comp, tg, f, wp0, sk, pt, A, B, ctx, prefix):
+    """Work plane through the hole's point, turned about the tilt axis from ``wp0`` by the tilt angle (the plane
+    that the hole is drilled normal to). Return ``(plane, expected unit direction)``."""
+    n = sp.PLANE_AXES[f["plane"]][0]
+    k = "XYZ".index(f["tilt"]["axis"])
+    want = sp.hole_direction(f)
+    _, eu, ev = sketch_basis(sk, tg)
+    vertical = abs(ev[k]) > abs(eu[k])
+    P0 = sk.SketchPoints.Item(sk.SketchPoints.Count).Geometry if pt is None else pt.Geometry
+    tip = tg.CreatePoint2d(P0.X, P0.Y + 1.0) if vertical else tg.CreatePoint2d(P0.X + 1.0, P0.Y)
+    line = sk.SketchLines.AddByTwoPoints(pt, tip)
+    line.Construction = True
+    if vertical:
+        sk.GeometricConstraints.AddVertical(line)
+    else:
+        sk.GeometricConstraints.AddHorizontal(line)
+    angle = math.radians(f["tilt"]["angle"])
+    for sign in (1, -1):
+        wp = comp.WorkPlanes.AddByLinePlaneAndAngle(line, wp0, sign * angle)
+        nrm = plane_normal(comp, tg, wp)
+        if abs(abs(sum(nrm[i] * want[i] for i in range(3))) - 1.0) < 1e-3:
+            if ctx is not None:
+                try:
+                    ctx.name_parameter(wp.Definition.Angle, prefix + "_tilt")
+                except Exception:
+                    pass
+            return wp, want
+        wp.Delete()
+    raise RuntimeError("The tilted work plane does not match the requested direction.")
+
+
+def add_tilted_hole(app, comp, tg, f, ctx=None):
+    """Hole drilled at an angle about a global axis (``tilt``): a work plane turned about a construction line through
+    the hole's point carries the sketch."""
+    plane = f["plane"]
+    n, A, B = sp.PLANE_AXES[plane]
+    name = f.get("name", "Hole")
+    prefix = _slug(name)[:24]
+    wp0 = offset_plane(comp, tg, plane, f.get("offset", 0), ctx, prefix)
+    d, depth = f["d"] * MM, f["depth"] * MM
+    holes = comp.Features.HoleFeatures
+    sk0 = comp.Sketches.Add(wp0)
+    origin = sk0.AddByProjectingEntity(comp.WorkPoints.Item(1))
+    basis = sketch_basis(sk0, tg)
+    P = make_mapper(tg, basis, A, B)
+    set_name(sk0, "Sketch - %s position" % name)
+    x, y = f["points"][0]
+    pt = sk0.SketchPoints.Add(P(x, y), True)
+    if ctx is not None:
+        try:
+            _fix_position(sk0, tg, origin, pt, ctx, prefix, "")
+        except Exception as e:
+            print("  warning: position of hole '%s' has no dimensions: %s" % (name, e))
+    wp, want = _tilted_plane(app, comp, tg, f, wp0, sk0, pt, A, B, ctx, prefix)
+    before = part_volume(comp)
+    feat, last_error = None, None
+    for attempt in range(2):
+        sk = comp.Sketches.Add(wp)
+        set_name(sk, "Sketch - " + name)
+        center = sk.AddByProjectingEntity(pt)
+        _, eu, ev = sketch_basis(sk, tg)
+        normal = cross(eu, ev)
+        along = sum(normal[i] * want[i] for i in range(3))
+        preferred = K_NEGATIVE if along > 0 else K_POSITIVE  # a hole's "positive" is opposite to the sketch normal
+        direction = preferred if attempt == 0 else (K_POSITIVE if preferred == K_NEGATIVE else K_NEGATIVE)
+        col = app.TransientObjects.CreateObjectCollection()
+        col.Add(center)
+        try:
+            place = holes.CreateSketchPlacementDefinition(col)
+            subtype = f.get("subtype", "simple")
+            if subtype == "countersink":
+                feat = holes.AddCSinkByDistanceExtent(place, d, depth, direction, f["head_d"] * MM,
+                                                      math.radians(f["angle"]), True)
+            elif subtype == "counterbore":
+                feat = holes.AddCBoreByDistanceExtent(place, d, depth, direction, f["head_d"] * MM,
+                                                      f["head_depth"] * MM, True)
+            else:
+                feat = holes.AddDrilledByDistanceExtent(place, d, depth, direction, True)
+        except Exception as e:
+            last_error, feat = e, None
+            sk.Delete()
+            continue
+        try:
+            comp.Parent.Update()
+        except Exception:
+            pass
+        after = part_volume(comp)
+        if before is None or after is None or abs(after - before) > 1e-9:
+            break
+        print("  warning: reversed direction in '%s', trying the opposite" % name)
+        try:
+            feat.Delete()
+            sk.Delete()
+        except Exception:
+            break
+        feat = None
+    if feat is None:
+        raise RuntimeError("Tilted hole '%s' failed: %s" % (name, last_error))
+    set_name(feat, name)
+    if ctx is not None:
+        for attr, tag in (("HoleDiameter", "D"), ("CSinkDiameter", "D_head"), ("CSinkAngle", "angle"),
+                          ("CBoreDiameter", "D_head"), ("CBoreDepth", "head_depth")):
+            try:
+                ctx.name_parameter(getattr(feat, attr), "%s_%s" % (prefix, tag))
+            except Exception:
+                pass
+        try:
+            ctx.name_parameter(feat.Definition.Extent.Distance, prefix + "_depth")
+        except Exception:
+            pass
+    return feat
+
+
 def add_hole(app, comp, tg, f, ctx=None):
     """Inventor hole feature (simple, countersink or counterbore) at one or more positions."""
+    if f.get("tilt"):
+        if len(f["points"]) != 1:
+            raise RuntimeError("A tilted hole feature takes exactly one point.")
+        return add_tilted_hole(app, comp, tg, f, ctx)
     plane = f["plane"]
     n, A, B = sp.PLANE_AXES[plane]
     name = f.get("name", "Hole")
