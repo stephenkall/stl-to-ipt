@@ -409,3 +409,26 @@ def test_auto_orient_recovers_axis_aligned_extents(angles):
 
 def test_auto_orient_leaves_aligned_part_alone():
     assert cv.auto_orient(_tilted_block(0, 0, 0)) is None
+
+
+def _knurled_ring(radius=15.0, ripple=0.4, teeth=36, n=360):
+    t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    r = radius + ripple * np.sign(np.sin(teeth * t))
+    return np.c_[r * np.cos(t), r * np.sin(t)]
+
+
+def test_knurled_circle_is_smoothed_to_an_equal_area_circle():
+    ring = _knurled_ring()
+    poly = Polygon(ring)
+    smooth = cv._smooth_ripple(poly)
+    assert abs(smooth.area - poly.area) / poly.area < 0.002
+    shape = cv.ring_to_shape(list(smooth.exterior.coords), 0.12, (30, 30))
+    assert shape["shape"] == "circle" and abs(shape["d"] - 2 * math.sqrt(poly.area / math.pi)) < 0.05
+
+
+def test_plain_circle_oval_and_square_are_not_treated_as_knurled():
+    t = np.linspace(0, 2 * math.pi, 360, endpoint=False)
+    oval = np.c_[20 * np.cos(t), 12 * np.sin(t)]
+    assert cv.ripple_circle(oval) is None
+    assert cv.ripple_circle(np.c_[15 * np.cos(t), 15 * np.sin(t)]) is None
+    assert cv.ripple_circle(np.array([[0, 0], [10, 0], [10, 10], [0, 10]])) is None
