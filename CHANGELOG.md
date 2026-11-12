@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/stephenkall/stl-to-ipt/compare/v0.7.0...v0.7.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* model knurled cylinders as smooth circles instead of one rippled profile per section ([#24](https://github.com/stephenkall/stl-to-ipt/issues/24)) ([3aaa410](https://github.com/stephenkall/stl-to-ipt/commit/3aaa4105011b4812801aa662542831746ea574d3))
+
 ## [0.7.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.6.0...v0.7.0) (2026-11-12)
 
 
