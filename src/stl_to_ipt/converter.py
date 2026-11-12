@@ -52,6 +52,49 @@ def load_mesh(path):
     return m
 
 
+KNURL_MIN_POINTS = 40      # a rippled ring has many vertices
+KNURL_MAX_RELATIVE = 0.10  # ripple amplitude (max-min radius) up to this fraction of the radius
+KNURL_MIN_WAVES = 12       # radius crossings of its mean: a ripple, not a slightly oval shape
+
+
+def ripple_circle(coords):
+    """``(cx, cy, r)`` when the closed ring is a circle with a fine regular ripple (a knurled surface), else None.
+
+    The radius ``r`` is the area-equivalent one, so the smooth circle keeps the volume of the textured one.
+    """
+    P = np.asarray(coords, float)
+    if len(P) < KNURL_MIN_POINTS:
+        return None
+    if np.allclose(P[0], P[-1]):
+        P = P[:-1]
+    poly = Polygon(P)
+    if not poly.is_valid or poly.area < 1e-6:
+        return None
+    c = np.array(poly.centroid.coords[0])
+    r = np.hypot(*(P - c).T)
+    mean = float(r.mean())
+    spread = float(r.max() - r.min())
+    if mean < 1.0 or spread > KNURL_MAX_RELATIVE * mean * 2 or spread < 0.004 * mean:
+        return None  # not nearly circular, or already a clean circle
+    waves = int(np.count_nonzero(np.diff(np.sign(r - mean)) != 0))
+    if waves < KNURL_MIN_WAVES:
+        return None
+    return float(c[0]), float(c[1]), math.sqrt(poly.area / math.pi)
+
+
+def _smooth_ripple(poly):
+    """Replace a knurled (finely rippled) circular outline by the smooth circle of the same area."""
+    if poly.geom_type != "Polygon" or len(poly.exterior.coords) < KNURL_MIN_POINTS:
+        return poly
+    ring = ripple_circle(poly.exterior.coords)
+    if ring is None:
+        return poly
+    cx, cy, r = ring
+    smooth = shapely.geometry.Point(cx, cy).buffer(r, 64)
+    holes = [Polygon(h) for h in poly.interiors]
+    return smooth.difference(shapely.union_all(holes)) if holes else smooth
+
+
 def section(m, n, level):
     """2D region (A, B) of the mesh cross-section along axis ``n`` at ``level`` (mm)."""
     _, A, B = sp.PLANE_AXES[PLANE_NAME[n]]
@@ -71,6 +114,7 @@ def section(m, n, level):
             p = p.buffer(0)
         if p.area < 1e-6:
             continue
+        p = _smooth_ripple(p)
         g = p if g is None else _symdiff(g, p)
     if g is not None and not g.is_valid:
         g = _clean_region(g)

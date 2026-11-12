@@ -178,3 +178,9 @@ one while the IoU stays within 0.002. Inventor refuses the fillet when holes sit
 * **Robust sections**: `section` repairs invalid GEOS geometry (`TopologyException`) instead of aborting.
 * **Progress**: workers report their stage; the batch shows it in the bar and logs a heartbeat every 20 s.
 * **Known limitation**: parts with two different axes (bent tubes) are still sliced along one axis.
+
+## Knurled surfaces
+
+A nearly circular section with a fine, regular ripple (radius within +/-10%, at least 12 crossings of the mean
+radius) is replaced by the circle of the same area, so a knurled grip is modelled as a smooth cylinder instead of
+one sketch per section. Gears are not affected (their tooth depth is larger and they are handled by the gear step).
