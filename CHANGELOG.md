@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.6.0...v0.7.0) (2026-11-12)
+
+
+### Features
+
+* align tilted parts, drop micro chamfers, repair invalid sections and report conversion progress ([#22](https://github.com/stephenkall/stl-to-ipt/issues/22)) ([30261f2](https://github.com/stephenkall/stl-to-ipt/commit/30261f2b7718bcb830a33233e62563ceee38e88e))
+
 ## [0.6.0](https://github.com/stephenkall/stl-to-ipt/compare/v0.5.2...v0.6.0) (2026-11-05)
 
 
