@@ -166,3 +166,15 @@ one while the IoU stays within 0.002. Inventor refuses the fillet when holes sit
 - Only one mirror plane is used per part, and the base profile is always drawn complete.
 - Tilted parts are rotated in the mesh instead of using an inclined work plane.
 - Linear patterns are several shapes inside one sketch, not a rectangular-pattern feature.
+
+## Orientation, micro chamfers and progress (v0.7)
+
+* **Alignment (`auto_orient`)**: the largest flat-face directions are aligned with the global axes. It is only
+  used when it shrinks the bounding box to 85% or less (a part tilted in the model frame); the part is converted
+  both ways and the better fit is kept. The matrix is stored in `notes.aligned_with_rotation_matrix`.
+* **Micro chamfers (`simplify.py`)**: 45-degree edge breaks of up to 0.7 mm between a horizontal and a vertical
+  line are removed from contours unless the IoU drops by more than 0.003. Inventor sketches of contours with more
+  than 14 edges only dimension the overall width/height and the radii.
+* **Robust sections**: `section` repairs invalid GEOS geometry (`TopologyException`) instead of aborting.
+* **Progress**: workers report their stage; the batch shows it in the bar and logs a heartbeat every 20 s.
+* **Known limitation**: parts with two different axes (bent tubes) are still sliced along one axis.

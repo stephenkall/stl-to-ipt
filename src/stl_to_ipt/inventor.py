@@ -289,6 +289,9 @@ def _attempt(fn, *args):
         return False
 
 
+COMPLEX_CONTOUR_EDGES = 14  # contours with more edges get overall dimensions only, not one per corner
+
+
 def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag, tangents=()):
     """Constraints and dimensions that express the design intent of a contour:
 
@@ -297,6 +300,8 @@ def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag, tangents=()):
     * dimensions: positions of ordinary corners (chained along X and Y), then arc radii. Points where
       segments flow tangentially into each other get no dimension of their own: tangency plus the radii already
       determine them, and an extra dimension there would over-constrain (and break) the sketch.
+    * a complex contour (more than ``COMPLEX_CONTOUR_EDGES`` edges) keeps its H/V/tangent constraints but only
+      gets the overall width and height: dimensioning every corner would bury the sketch in dimensions.
     """
     verts = {}
     pts = []
@@ -312,6 +317,7 @@ def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag, tangents=()):
     for e, kind in ents:
         edges.append((vertex_id(e.StartSketchPoint), vertex_id(e.EndSketchPoint), e, kind))
     n_edges = len(edges)
+    complex_contour = n_edges > COMPLEX_CONTOUR_EDGES
 
     check = bool(tangents)  # redundancy only matters (and is only hidden) when tangent constraints are present
     tangent_vertices = set()
@@ -363,6 +369,8 @@ def parametrize_contour(sk, tg, origin, ctx, ents, prefix, tag, tangents=()):
         free_reps[horizontal].sort(key=key)
         anchor = None
         for n_, i in enumerate(reps, 1):
+            if complex_contour and 1 < n_ < len(reps):
+                continue  # intermediate corners keep their H/V constraints without a dimension of their own
             label = "%s_%s%s%d" % (prefix, "H" if horizontal else "V", tag, n_)
             g = pts[i].Geometry
             if anchor is None:
