@@ -20,7 +20,7 @@ import numpy as np
 import shapely
 from shapely.geometry import Polygon, box
 
-from . import fits, gears, patterns, rounding
+from . import fits, gears, patterns, rounding, simplify
 from . import spec as sp
 from . import symmetry
 
@@ -32,6 +32,17 @@ RECESS_NAME = "Circular recess"  # a pocket that belongs to a hole: never pruned
 
 
 # ----------------------------------------------------------------------------- mesh
+progress_callback = None  # optional ``f(message)``: lets a caller show which stage a long conversion is in
+
+
+def _progress(message):
+    if progress_callback is not None:
+        try:
+            progress_callback(message)
+        except Exception:
+            pass
+
+
 def load_mesh(path):
     import trimesh
     m = trimesh.load(path, force="mesh")
@@ -60,8 +71,40 @@ def section(m, n, level):
             p = p.buffer(0)
         if p.area < 1e-6:
             continue
-        g = p if g is None else g.symmetric_difference(p)
+        g = p if g is None else _symdiff(g, p)
+    if g is not None and not g.is_valid:
+        g = _clean_region(g)
     return g
+
+
+def _clean_region(g):
+    """Return a valid polygonal version of ``g`` (drops stray lines and points)."""
+    for grid in (None, 1e-6, 1e-4, 1e-3):
+        h = g if grid is None else shapely.set_precision(g, grid)
+        h = shapely.make_valid(h)
+        if h.geom_type not in ("Polygon", "MultiPolygon"):
+            parts = [x for x in getattr(h, "geoms", []) if x.geom_type in ("Polygon", "MultiPolygon")]
+            h = shapely.union_all(parts) if parts else Polygon()
+        if h.is_valid:
+            return h
+    return g.buffer(0)
+
+
+def _symdiff(a, b):
+    """Symmetric difference that survives nearly degenerate input (GEOS TopologyException)."""
+    try:
+        return a.symmetric_difference(b)
+    except shapely.errors.GEOSException:
+        pass
+    for grid in (1e-6, 1e-4, 1e-3):
+        try:
+            a2 = shapely.set_precision(shapely.make_valid(a), grid)
+            b2 = shapely.set_precision(shapely.make_valid(b), grid)
+            return a2.symmetric_difference(b2)
+        except shapely.errors.GEOSException:
+            continue
+    # Last resort: even-odd via buffered, cleaned operands.
+    return a.buffer(0).symmetric_difference(b.buffer(0.0005).buffer(-0.0005))
 
 
 def silhouette(m, n):
@@ -1334,6 +1377,75 @@ def rotate(m, axis, degrees):
     return g
 
 
+def _dominant_directions(m, bin_deg=1.0):
+    """Face-normal directions weighted by area, as ``[(unit vector, area)]`` (sign-symmetric, largest first)."""
+    n = np.asarray(m.face_normals, float)
+    a = np.asarray(m.area_faces, float)
+    flip = np.sign(n[np.arange(len(n)), np.argmax(np.abs(n), axis=1)])  # canonical sign: n and -n are one direction
+    flip[flip == 0] = 1.0
+    n = n * flip[:, None]
+    q = np.round(n / math.radians(bin_deg))  # ~bin_deg bins on the unit sphere
+    bins = {}
+    for key, vec, w in zip(map(tuple, q), n, a):
+        b = bins.setdefault(key, [np.zeros(3), 0.0])
+        b[0] += vec * w
+        b[1] += w
+    out = []
+    for vec, w in bins.values():
+        norm = float(np.linalg.norm(vec))
+        if norm > 0:
+            out.append((vec / norm, w))
+    out.sort(key=lambda t: -t[1])
+    return out
+
+
+def auto_orient(m, min_tilt_deg=0.3):
+    """Rotation that aligns the dominant flat faces of ``m`` with the global axes, or ``None``.
+
+    The largest planar direction becomes the nearest axis; the largest direction perpendicular to it becomes
+    the nearest remaining axis. Returns a 3x3 matrix ``R`` (new = R @ old) when the part is tilted by more
+    than ``min_tilt_deg`` degrees, else ``None``.
+    """
+    dirs = _dominant_directions(m)
+    if len(dirs) < 2:
+        return None
+    total = sum(w for _, w in dirs)
+    d1, w1 = dirs[0]
+    if w1 < 0.05 * total:
+        return None
+    d2 = next((v for v, w in dirs[1:] if abs(float(np.dot(v, d1))) < 0.05 and w > 0.02 * total), None)
+    if d2 is None:
+        d2 = next((v for v, _ in dirs[1:] if abs(float(np.dot(v, d1))) < 0.5), None)
+    if d2 is None:
+        return None
+    d2 = d2 - d1 * float(np.dot(d1, d2))
+    d2 /= np.linalg.norm(d2)
+    d3 = np.cross(d1, d2)
+    i = int(np.argmax(np.abs(d1)))
+    j = max((k for k in range(3) if k != i), key=lambda k: abs(d2[k]))
+    k = 3 - i - j
+    rows = {i: d1 * np.sign(d1[i]), j: d2 * np.sign(d2[j])}
+    rows[k] = np.cross(rows[i], rows[j]) if (i, j, k) in ((0, 1, 2), (1, 2, 0), (2, 0, 1))         else np.cross(rows[j], rows[i])
+    R = np.vstack([rows[0], rows[1], rows[2]])
+    tilt = max(math.degrees(math.acos(min(1.0, abs(float(d1[i]))))),
+               math.degrees(math.acos(min(1.0, abs(float(d2[j]))))))
+    return R if tilt > min_tilt_deg else None
+
+
+def orient(m, R):
+    """Copy of ``m`` rotated by ``R`` about its centroid and moved back to the origin corner."""
+    import trimesh
+    T = np.eye(4)
+    T[:3, :3] = R
+    g = m.copy()
+    c = g.centroid.copy()
+    g.apply_translation(-c)
+    g.apply_transform(T)
+    g.apply_translation(c)
+    g.apply_translation(-g.bounds[0])
+    return g
+
+
 def best_rotation(m):
     base = _prismatic(m)
     best = (base, None)
@@ -1347,11 +1459,31 @@ def best_rotation(m):
     return best[1]
 
 
+def _aligned_candidate(m, min_tilt_deg=1.0, max_box_ratio=0.85):
+    """``(aligned mesh, rotation matrix)`` when aligning with the dominant flat faces shrinks the bounding box
+    clearly (a part tilted in the model frame), else ``None``. Small tilts and curved-face noise are ignored."""
+    R = auto_orient(m, min_tilt_deg)
+    if R is None:
+        return None
+    g = orient(m, R)
+    if float(np.prod(g.extents)) > max_box_ratio * float(np.prod(m.extents)):
+        return None
+    return g, [[round(float(v), 6) for v in row] for row in R]
+
+
 def convert(stl_path, tol=0.12):
     """Convert an STL file. Return ``(mesh, extents, spec)`` (the mesh may be rotated to align it)."""
     m = load_mesh(stl_path)
     part = os.path.splitext(os.path.basename(stl_path))[0]
     r = _convert_mesh(m, tol, part)
+    _progress("trying an aligned orientation")
+    candidate = _aligned_candidate(m)
+    if candidate is not None:  # clearly tilted part: also try an aligned frame, keep whichever fits better
+        m2, matrix = candidate
+        r2 = _convert_mesh(m2, tol, part)
+        if r2[3] - 0.01 * len(r2[2]["features"]) > r[3] - 0.01 * len(r[2]["features"]):
+            r2[2]["notes"]["aligned_with_rotation_matrix"] = matrix
+            m, r = m2, r2
     if r[3] < 0.97:
         rot = best_rotation(m)
         if rot:
@@ -1625,8 +1757,24 @@ def _apply_mirror(spec, ext, pts, inside):
             "removed_duplicates": best[0]}
 
 
+def _simplify_contours(spec, ext, pts, inside, max_loss=0.003):
+    """Drop micro chamfers from the contours (see ``simplify``) unless the fit gets noticeably worse."""
+    import copy
+    trial = copy.deepcopy(spec)
+    removed = simplify.simplify_spec(trial)
+    if not removed:
+        return 0
+    before = _iou_points(spec, ext, pts, inside)
+    after = _iou_points(trial, ext, pts, inside)
+    if after < before - max_loss:
+        return 0
+    spec["features"] = trial["features"]
+    return removed
+
+
 def _convert_mesh(m, tol, part):
     ext = [round(float(e), 3) for e in m.extents]
+    _progress("choosing the extrusion axis")
     pts, inside = sample_points(m, ext)
     pts2, inside2 = sample_points(m, ext, 12000, seed=7)
     best = None
@@ -1637,6 +1785,7 @@ def _convert_mesh(m, tol, part):
         if best is None or score > best[0]:
             best = (score, n)
     n = best[1]
+    _progress("detecting blind holes")
     # blind holes across the extrusion axis are independent of the run plan: detect them once
     blind_features, fills = [], []
     for a in [x for x in (2, 1, 0) if x != n]:
@@ -1646,6 +1795,7 @@ def _convert_mesh(m, tol, part):
     for h in find_tilted_holes(m, ext, n):  # radial holes of a curved part: drilled at an angle about the axis
         blind_features += hole_features([h], PLANE_NAME[h["axis"]])
         fills.append((h["axis"], h))
+    _progress("slicing the part into sections")
     results = []
     for merge in (False, True):
         feats, n_runs = plan(m, ext, n, tol, merge, fills)
@@ -1656,11 +1806,14 @@ def _convert_mesh(m, tol, part):
         spec = {"system": "model", "features": feats}
         value, pruned = _prune(spec, ext, pts2, inside2)
         results.append((value - 0.006 * len(feats), spec, value, n_runs, pruned, merge))
+    _progress("simplifying and fitting features")
     _, spec, value, _, pruned, merge = max(results, key=lambda r: r[0])
+    _progress("checking gear, fillet and mirror symmetry")
     gear_note = _apply_gear(m, spec, ext, pts2, inside2)
     fillet_note = None if gear_note else _apply_edge_fillet(m, spec, ext, tol, pts2, inside2)
     raw_diameters = fits.raw_diameters(spec)
     rounding.round_spec(spec)
+    chamfers_dropped = _simplify_contours(spec, ext, pts2, inside2)
     symmetry.unique_names(spec["features"])
     mirror_note = _apply_mirror(spec, ext, pts2, inside2)
     spec["notes"] = {"part": part, "estimated_iou": round(value, 4),
@@ -1668,13 +1821,15 @@ def _convert_mesh(m, tol, part):
                      "original_min": [round(float(v), 3) for v in m.metadata.get("original_min", [0, 0, 0])],
                      "extrusion_axis": AXIS_NAME[n], "tolerance_mm": tol, "pruned_features": pruned,
                      "merged_interruptions": merge, "raw_diameters": raw_diameters, "mirror": mirror_note,
-                     "gear": gear_note, "fillet": fillet_note}
+                     "gear": gear_note, "fillet": fillet_note,
+                     "micro_chamfers_dropped": chamfers_dropped}
     return m, ext, spec, value
 
 
 def convert_file(stl_path, out_dir, tol=0.12, n_points=30000):
     """Convert one STL and write ``<part>.json`` to ``out_dir``. Return ``(json_path, spec)``."""
     m, ext, spec = convert(stl_path, tol)
+    _progress("measuring the match with the STL")
     spec["notes"]["iou"] = round(iou(m, spec, ext, n_points), 4)
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, spec["notes"]["part"] + ".json")

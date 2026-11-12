@@ -6,6 +6,7 @@ Heavy-processing features:
   * progress bars (tqdm) and structured logging,
   * configurable worker count for the CPU-bound conversion stage.
 """
+import time
 import glob
 import hashlib
 import json
@@ -14,6 +15,7 @@ import os
 import shutil
 import signal
 import sys
+import tempfile
 import traceback
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
@@ -137,9 +139,17 @@ def _ignore_sigint():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def _convert_one(stl_path, spec_dir, tol):
-    """Runs in a worker process."""
+def _convert_one(stl_path, spec_dir, tol, status_dir=None):
+    """Runs in a worker process. Writes its current stage to ``status_dir/<part>.txt`` for the progress display."""
+    from . import converter
     from .converter import convert_file
+    if status_dir:
+        status = Path(status_dir) / (Path(stl_path).stem + ".txt")
+
+        def report(message):
+            status.write_text(message, encoding="utf-8")
+
+        converter.progress_callback = report
     path, spec = convert_file(stl_path, spec_dir, tol)
     return path, spec["notes"]["iou"], len(spec["features"])
 
@@ -160,6 +170,8 @@ def convert_stage(stl_files, spec_dir, tol, workers, cache, use_cache):
         return specs
     global _pool
     log.info("Converting %d STL file(s) with %d worker(s)", len(todo), workers)
+    status_dir = Path(tempfile.mkdtemp(prefix="stl_to_ipt_status_"))
+    started, last_report = {}, time.monotonic()
     with ProcessPoolExecutor(max_workers=workers, initializer=_ignore_sigint) as pool, \
             tqdm(total=len(todo), desc="Converting", unit="part") as bar:
         _pool = pool
@@ -174,7 +186,8 @@ def convert_stage(stl_files, spec_dir, tol, workers, cache, use_cache):
             item = next(queue, None)
             if item:
                 stl, name, digest = item
-                futures[pool.submit(_convert_one, stl, spec_dir, tol)] = (name, digest)
+                futures[pool.submit(_convert_one, stl, spec_dir, tol, str(status_dir))] = (name, digest)
+                started[name] = time.monotonic()
 
         for _ in range(workers):
             submit_next()
@@ -182,6 +195,17 @@ def convert_stage(stl_files, spec_dir, tol, workers, cache, use_cache):
         while futures:
             # a timeout keeps the main thread responsive: a bare wait would not notice Ctrl+C on Windows
             done, _ = wait(list(futures), timeout=0.2, return_when=FIRST_COMPLETED)
+            now = time.monotonic()
+            if futures and now - last_report >= 20:  # heartbeat: which stage each running part is in
+                last_report = now
+                lines = []
+                for name, _digest in futures.values():
+                    f = status_dir / (name + ".txt")
+                    stage = f.read_text(encoding="utf-8") if f.exists() else "starting"
+                    elapsed = int(now - started.get(name, now))
+                    lines.append("%s: %s (%dm%02ds)" % (name, stage, elapsed // 60, elapsed % 60))
+                bar.set_postfix_str(lines[0] if len(lines) == 1 else "%d running" % len(lines))
+                log.info("Still working - %s", "; ".join(lines))
             for fut in done:
                 name, digest = futures.pop(fut)
                 try:
@@ -197,6 +221,7 @@ def convert_stage(stl_files, spec_dir, tol, workers, cache, use_cache):
                 log.warning("Waiting for %d running part(s): %s", len(futures),
                             ", ".join(sorted(v[0] for v in futures.values())))
         _pool = None
+    shutil.rmtree(status_dir, ignore_errors=True)
     return specs
 
 

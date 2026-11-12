@@ -356,3 +356,56 @@ def test_hole_fill_of_a_tilted_hole_is_a_strip_along_its_axis():
     minx, miny, maxx, maxy = fill.bounds
     assert maxx - minx == pytest.approx(11.5 * 0.5 + 3 * math.cos(math.radians(30)), abs=0.3)
     assert cv.hole_fill(hole, 1, 2, 5.0, wall, refs=[wall]) is None  # beyond the radius of the hole
+
+
+def test_clean_region_repairs_invalid_polygon():
+    from shapely.geometry import Polygon
+    bowtie = Polygon([(0, 0), (4, 4), (4, 0), (0, 4)])
+    assert not bowtie.is_valid
+    fixed = cv._clean_region(bowtie)
+    assert fixed.is_valid and fixed.area > 0
+
+
+def test_symdiff_matches_plain_operation_on_valid_input():
+    from shapely.geometry import box
+    a, b = box(0, 0, 4, 4), box(2, 2, 6, 6)
+    assert cv._symdiff(a, b).area == a.symmetric_difference(b).area
+
+
+def test_drop_micro_chamfers_squares_the_corner():
+    from stl_to_ipt import simplify
+    c = {"shape": "contour", "start": [0, 0],
+         "segments": [["L", 10, 0], ["L", 10, 9.5], ["L", 9.5, 10], ["L", 0, 10], ["L", 0, 0]]}
+    c, removed = simplify.drop_micro_chamfers(c)
+    assert removed == 1
+    assert len(c["segments"]) == 4
+    assert [10, 10] in [s[-2:] for s in c["segments"]]
+
+
+def test_drop_micro_chamfers_keeps_large_bevels():
+    from stl_to_ipt import simplify
+    c = {"shape": "contour", "start": [0, 0],
+         "segments": [["L", 10, 0], ["L", 10, 6], ["L", 6, 10], ["L", 0, 10], ["L", 0, 0]]}
+    assert simplify.drop_micro_chamfers(c)[1] == 0
+
+
+def _tilted_block(rx, ry, rz):
+    import trimesh
+    base = trimesh.creation.box(extents=(40, 20, 8))
+    rot = trimesh.transformations.euler_matrix(math.radians(rx), math.radians(ry), math.radians(rz))
+    base.apply_transform(rot)
+    base.apply_translation(-base.bounds[0])
+    return base
+
+
+@pytest.mark.parametrize("angles", [(0, 0, 25), (17, 0, 0), (12, -33, 41), (0, 0, 0)])
+def test_auto_orient_recovers_axis_aligned_extents(angles):
+    m = _tilted_block(*angles)
+    R = cv.auto_orient(m)
+    g = cv.orient(m, R) if R is not None else m
+    assert sorted(round(float(e), 2) for e in g.extents) == [8.0, 20.0, 40.0]
+    assert np.allclose(g.bounds[0], 0, atol=1e-6)
+
+
+def test_auto_orient_leaves_aligned_part_alone():
+    assert cv.auto_orient(_tilted_block(0, 0, 0)) is None
